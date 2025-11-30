@@ -14,7 +14,7 @@ echo It runs the background logic for the Trading App.
 echo.
 
 if exist src\main.py (
-    python src\main.py
+    python -m src.main
 ) else (
     echo.
     echo ERROR: src\main.py not found!

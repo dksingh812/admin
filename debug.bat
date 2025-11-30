@@ -13,7 +13,7 @@ echo Running the application in Verbose Mode...
 echo Output is being saved to 'debug_output.txt'
 echo.
 
-python src\main.py > debug_output.txt 2>&1
+python -m src.main > debug_output.txt 2>&1
 
 echo.
 echo ==================================================

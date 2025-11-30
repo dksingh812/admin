@@ -1,4 +1,16 @@
 Traceback (most recent call last):
-  File "/app/src/main.py", line 31, in <module>
-    from src.config import load_config
-ModuleNotFoundError: No module named 'src.config'
+  File "/app/src/main.py", line 90, in <module>
+    main()
+  File "/app/src/main.py", line 77, in main
+    app = MainApp(context)
+          ^^^^^^^^^^^^^^^^
+  File "/app/src/ui/main_app.py", line 7, in __init__
+    super().__init__(themename="darkly")
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/site-packages/ttkbootstrap/window.py", line 278, in __init__
+    super().__init__(**kwargs)
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/site-packages/ttkbootstrap/style.py", line 5516, in __init__wrapper
+    func(self, *args, **kwargs)
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/tkinter/__init__.py", line 2346, in __init__
+    self.tk = _tkinter.create(screenName, baseName, className, interactive, wantobjects, useTk, sync, use)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_tkinter.TclError: no display name and no $DISPLAY environment variable
