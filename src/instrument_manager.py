@@ -3,6 +3,7 @@ import json
 import gzip
 import shutil
 import pandas as pd
+import threading
 from src.config import DATA_DIR
 from src.logger import logger
 
@@ -11,12 +12,17 @@ INSTRUMENT_FILE = DATA_DIR / "complete_instrument_list.csv"
 class InstrumentManager:
     def __init__(self):
         self.df = None
-        self.load_instruments()
+        self.symbol_list = []
+        self.loading = False
+        # Start loading in background
+        self.loader_thread = threading.Thread(target=self.load_instruments, daemon=True)
+        self.loader_thread.start()
 
     def download_file(self, url, dest_name):
         try:
             logger.info(f"Downloading {dest_name}...")
-            response = requests.get(url, stream=True)
+            # Set timeout to prevent hanging forever
+            response = requests.get(url, stream=True, timeout=30)
             if response.status_code == 200:
                 compressed_file = DATA_DIR / f"{dest_name}.gz"
                 with open(compressed_file, 'wb') as f:
@@ -40,8 +46,6 @@ class InstrumentManager:
         urls = {
             "NSE_EQ.csv": "https://assets.upstox.com/feed/nse/equity/NSE_EQ.csv.gz",
             "NSE_FO.csv": "https://assets.upstox.com/feed/nse/equity/NSE_FO.csv.gz",
-            # Guessing URL structure based on Upstox common patterns
-            # Often indices are in NSE_INDEX
             "NSE_INDEX.csv": "https://assets.upstox.com/feed/nse/index/NSE_INDEX.csv.gz"
         }
 
@@ -63,32 +67,40 @@ class InstrumentManager:
         return False
 
     def load_instruments(self):
+        self.loading = True
         if not INSTRUMENT_FILE.exists():
-            self.download_instruments()
+            success = self.download_instruments()
+            if not success:
+                self.symbol_list = []
+                self.loading = False
+                return
 
         try:
+            logger.info("Loading Instrument CSV into memory...")
             self.df = pd.read_csv(INSTRUMENT_FILE)
-            # Create a clean lookup map if possible, but the DF is large.
-            # We rely on filtering for now.
+            if 'tradingsymbol' in self.df.columns:
+                self.symbol_list = self.df['tradingsymbol'].dropna().astype(str).tolist()
+                self.symbol_list.sort()
+                logger.info(f"Loaded {len(self.symbol_list)} instruments.")
+            else:
+                self.symbol_list = []
         except Exception as e:
             logger.error(f"Error loading instrument file: {e}")
+            self.symbol_list = []
+        finally:
+            self.loading = False
 
     def get_instrument_key(self, symbol):
         if self.df is None:
             return None
 
-        # 1. Try Exact Match on 'tradingsymbol' (e.g. RELIANCE, BANKNIFTY23...)
         row = self.df[self.df['tradingsymbol'] == symbol]
         if not row.empty:
             return row.iloc[0]['instrument_key']
-
-        # 2. Try 'name' match for Indices (e.g. "Nifty 50")
-        # Indices in Upstox CSV often have tradingsymbol like "Nifty 50" or "Nifty Bank"
-        row = self.df[self.df['tradingsymbol'] == symbol]
-        # Note: Sometimes tradingsymbol is "NIFTY 50" (with space) or "NIFTY_50".
-        # We try strict match first.
-
         return None
+
+    def get_all_symbols(self):
+        return self.symbol_list
 
 # Singleton
 instrument_manager = InstrumentManager()

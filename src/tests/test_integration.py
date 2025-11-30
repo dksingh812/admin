@@ -15,12 +15,12 @@ class TestIntegration(unittest.TestCase):
         # Mock the on_tick method to verify it's called
         self.strategy.on_tick = MagicMock()
 
-        # Activate strategy
-        self.strategy.start()
+        # Configure Symbol (Crucial Fix)
+        self.strategy.set_symbol("TEST")
 
-        # Simulate one poll loop iteration
-        # Instead of running the thread, we call the logic directly or wait
-        # Here we just manually trigger what the loop does to verify wiring
+        # Activate strategy
+        success = self.strategy.start()
+        self.assertTrue(success, "Strategy should start when symbol is set")
 
         tick_data = {"symbol": "TEST", "ltp": 100.0, "change": 0.0}
 
