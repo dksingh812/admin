@@ -3,6 +3,7 @@ from tkinter import ttk
 import ttkbootstrap as tb
 from src.logger import logger
 import webbrowser
+import threading
 
 class LoginTab(ttk.Frame):
     def __init__(self, parent, context):
@@ -17,13 +18,12 @@ class LoginTab(ttk.Frame):
         lbl_title.pack(pady=10)
 
         # Mode Selection
-        self.mode_var = tk.StringVar(value="PAPER")
-        frame_mode = ttk.LabelFrame(self, text="Trading Mode")
+        self.mode_var = tk.StringVar(value="LIVE")
+        frame_mode = ttk.LabelFrame(self, text="Environment")
         frame_mode.pack(fill=tk.X, pady=10)
 
-        ttk.Radiobutton(frame_mode, text="Paper Trading (Mock)", variable=self.mode_var, value="PAPER").pack(side=tk.LEFT, padx=10)
-        ttk.Radiobutton(frame_mode, text="Upstox Sandbox", variable=self.mode_var, value="SANDBOX").pack(side=tk.LEFT, padx=10)
-        ttk.Radiobutton(frame_mode, text="Upstox Live", variable=self.mode_var, value="LIVE").pack(side=tk.LEFT, padx=10)
+        ttk.Radiobutton(frame_mode, text="Live Trading", variable=self.mode_var, value="LIVE").pack(side=tk.LEFT, padx=20)
+        ttk.Radiobutton(frame_mode, text="Sandbox (Testing)", variable=self.mode_var, value="SANDBOX").pack(side=tk.LEFT, padx=20)
 
         # Credentials Input
         frame_creds = ttk.LabelFrame(self, text="API Credentials")
@@ -38,10 +38,10 @@ class LoginTab(ttk.Frame):
         self.entry_secret.grid(row=1, column=1, padx=5, pady=5)
 
         # Action Buttons
-        btn_login = ttk.Button(self, text="Login / Authorize", command=self.on_login, bootstyle="primary")
-        btn_login.pack(pady=20)
+        self.btn_login = ttk.Button(self, text="Login & Authorize", command=self.on_login, bootstyle="primary")
+        self.btn_login.pack(pady=20)
 
-        self.lbl_status = ttk.Label(self, text="Status: Waiting for input...")
+        self.lbl_status = ttk.Label(self, text="Status: Disconnected")
         self.lbl_status.pack()
 
         # Load from config if available
@@ -56,46 +56,66 @@ class LoginTab(ttk.Frame):
         api_key = self.entry_key.get()
         api_secret = self.entry_secret.get()
 
-        logger.info(f"Attempting Login. Mode: {mode}")
+        logger.info(f"Initiating Login. Mode: {mode}")
 
-        if mode == "PAPER":
-            # Switch Broker to Mock
-            from src.mock_broker import MockBroker
-            self.context['broker'] = MockBroker()
-            success = self.context['broker'].authenticate(api_key, api_secret)
-            self.lbl_status.config(text="Status: Mock Broker Connected", bootstyle="success")
+        # Disable button
+        self.btn_login.config(state="disabled")
+        self.lbl_status.config(text="Status: Waiting for Browser Login...", bootstyle="warning")
+
+        # Setup Broker
+        from src.upstox_broker import UpstoxBroker
+        # Ensure redirect URI matches what we listen on
+        redirect_uri = "http://127.0.0.1:5000/callback"
+        broker = UpstoxBroker(redirect_uri=redirect_uri)
+
+        self.context['broker'] = broker
+        self.context['data_engine'].broker = broker
+        self.context['risk_engine'].broker = broker
+        broker.set_risk_engine(self.context['risk_engine'])
+
+        # Start Local Server
+        from src.auth_server import AuthServer
+        server = AuthServer(port=5000)
+
+        try:
+            server.start_server()
+        except Exception as e:
+            logger.error(f"Failed to start auth server: {e}")
+            self.lbl_status.config(text=f"Error: Port 5000 busy?", bootstyle="danger")
+            self.btn_login.config(state="normal")
+            return
+
+        # Open Browser
+        login_url = broker.get_login_url(api_key)
+        webbrowser.open(login_url)
+
+        # Run waiting loop in a separate thread to not freeze UI
+        threading.Thread(target=self.wait_for_auth, args=(server, broker, api_key, api_secret), daemon=True).start()
+
+    def wait_for_auth(self, server, broker, api_key, api_secret):
+        code = server.wait_for_code(timeout=120) # 2 minutes timeout
+
+        if code:
+            self.after(0, lambda: self.finish_login(broker, api_key, api_secret, code))
+        else:
+            self.after(0, lambda: self.fail_login("Timeout"))
+
+    def finish_login(self, broker, api_key, api_secret, code):
+        if broker.authenticate(api_key, api_secret, code=code):
+            self.lbl_status.config(text="Status: Connected Successfully", bootstyle="success")
+
+            # Save credentials
+            config = self.context.get("config", {})
+            config["api_key"] = api_key
+            config["api_secret"] = api_secret
+            from src.config import save_config
+            save_config(config)
 
         else:
-            # Switch Broker to Upstox
-            from src.upstox_broker import UpstoxBroker
-            broker = UpstoxBroker(redirect_uri="http://127.0.0.1:5000/callback")
-            self.context['broker'] = broker
+            self.lbl_status.config(text="Status: Auth Failed at Upstox", bootstyle="danger")
 
-            # Open Browser for OAuth
-            login_url = broker.get_login_url(api_key)
-            webbrowser.open(login_url)
+        self.btn_login.config(state="normal")
 
-            # Prompt user for code (Simplification for Desktop App without local server listener)
-            # In a full app, we'd run a Flask server to catch the callback.
-            # Here, we ask the user to paste the code or url.
-            self.ask_for_code_popup(broker, api_key, api_secret)
-
-    def ask_for_code_popup(self, broker, api_key, api_secret):
-        # Create a Toplevel window
-        top = ttk.Toplevel(self)
-        top.title("Enter Auth Code")
-        top.geometry("400x200")
-
-        ttk.Label(top, text="Please login in the browser.\nThen copy the 'code' from the URL and paste it here:").pack(pady=10)
-        entry_code = ttk.Entry(top, width=40)
-        entry_code.pack(pady=5)
-
-        def submit_code():
-            code = entry_code.get()
-            if broker.authenticate(api_key, api_secret, code=code):
-                self.lbl_status.config(text="Status: Upstox Connected", bootstyle="success")
-                top.destroy()
-            else:
-                self.lbl_status.config(text="Status: Auth Failed", bootstyle="danger")
-
-        ttk.Button(top, text="Submit Code", command=submit_code).pack(pady=10)
+    def fail_login(self, reason):
+        self.lbl_status.config(text=f"Status: Login Failed ({reason})", bootstyle="danger")
+        self.btn_login.config(state="normal")

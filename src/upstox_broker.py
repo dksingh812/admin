@@ -15,6 +15,10 @@ class UpstoxBroker(BrokerAdapter):
         self.access_token = None
         self.connected = False
 
+        # Configuration for Order Product Type (Delivery vs Intraday)
+        # User requested Carry Forward capability, so 'D' (Delivery) is default.
+        self.default_product = 'D'
+
     def get_login_url(self, api_key):
         """Generates the OAuth2 Login URL."""
         base_url = "https://api.upstox.com/v2/login/authorization/dialog"
@@ -72,16 +76,14 @@ class UpstoxBroker(BrokerAdapter):
 
         key = instrument_manager.get_instrument_key(symbol)
         if not key:
-            # Fallback if we can't find it, or maybe the symbol IS the key
+            # Fallback: maybe symbol IS the key?
             key = symbol
 
         try:
             # Market Quote API
             api_instance = upstox_client.MarketQuoteApi(self.api_client)
             api_response = api_instance.get_market_quote_ltp(symbol=key)
-            # Response structure: { status: 'success', data: { 'NSE_EQ:RELIANCE': { last_price: 2400 } } }
             if api_response.data:
-                # The key in data might be slightly different
                 for k, v in api_response.data.items():
                     return v.last_price
             return 0.0
@@ -114,7 +116,7 @@ class UpstoxBroker(BrokerAdapter):
             api_instance = upstox_client.OrderApi(self.api_client)
             body = upstox_client.PlaceOrderRequest(
                 quantity=quantity,
-                product='D', # Delivery, or 'I' for Intraday
+                product=self.default_product, # 'D' for Delivery/Carry Forward
                 validity='DAY',
                 price=price if order_type == 'LIMIT' else 0.0,
                 tag='algo_order',
@@ -138,7 +140,7 @@ class UpstoxBroker(BrokerAdapter):
             return 0.0
         try:
             api_instance = upstox_client.UserApi(self.api_client)
-            api_response = api_instance.get_user_fund_margin(segment="SEC") # Securities
+            api_response = api_instance.get_user_fund_margin(segment="SEC")
             return api_response.data.funds.available_margin
         except Exception as e:
             logger.error(f"Upstox get_funds error: {e}")

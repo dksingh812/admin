@@ -37,7 +37,8 @@ def main():
     # 3. Start Data Engine (Background Polling)
     # We subscribe to a few default indices
     data_engine.subscribe(["NIFTY 50", "BANKNIFTY", "RELIANCE"])
-    data_engine.start_polling(interval=1.0)
+    data_engine.set_interval(1.0)
+    data_engine.start()
 
     # 4. Initialize Strategy (Example)
     # In a real scenario, this is added via UI dynamically, but here we preload one.
