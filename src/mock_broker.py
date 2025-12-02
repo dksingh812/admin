@@ -13,7 +13,10 @@ class MockBroker(BrokerAdapter):
         self.mock_ltp_cache = {
             "NIFTY 50": 22000.0,
             "BANKNIFTY": 48000.0,
-            "RELIANCE": 2900.0
+            "RELIANCE": 2900.0,
+            "FINNIFTY": 20000.0,
+            "SENSEX": 72000.0,
+            "INDIA VIX": 15.0
         }
 
     def authenticate(self, api_key, api_secret):
@@ -27,7 +30,17 @@ class MockBroker(BrokerAdapter):
         variation = random.uniform(-0.5, 0.5)
         new_price = round(base_price + variation, 2)
         self.mock_ltp_cache[symbol] = new_price
-        return new_price
+
+        # Calculate Mock Change
+        prev_close = base_price * 0.99 # Mock prev close
+        change = new_price - prev_close
+        pct = (change / prev_close) * 100
+
+        return {
+            "ltp": new_price,
+            "change": change,
+            "pct_change": pct
+        }
 
     def get_positions(self):
         return self.positions
@@ -37,7 +50,8 @@ class MockBroker(BrokerAdapter):
             logger.error("Mock Broker: Not Connected")
             return None
 
-        ltp = self.get_ltp(symbol) if order_type == "MARKET" else price
+        quote = self.get_ltp(symbol)
+        ltp = quote['ltp']
         trade_value = ltp * quantity
 
         if side == "BUY":

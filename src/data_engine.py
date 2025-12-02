@@ -7,13 +7,12 @@ class DataEngine:
         self.broker = broker
         self.strategies = strategies if strategies else []
         self.subscribed_symbols = []
-        self.latest_data = {} # {symbol: {ltp: x, change: y}}
+        self.latest_data = {} # {symbol: {ltp: x, change: y, pct: z}}
         self.running = False
         self.thread = None
         self.lock = threading.Lock()
 
-        # Performance Tuning
-        self.poll_interval = 0.5 # Default to 0.5s to be safe with rate limits
+        self.poll_interval = 1.0 # Default 1s
 
     def set_interval(self, interval):
         self.poll_interval = interval
@@ -27,7 +26,7 @@ class DataEngine:
             self.subscribed_symbols = list(set(self.subscribed_symbols + symbols))
             for s in symbols:
                 if s not in self.latest_data:
-                    self.latest_data[s] = {"ltp": 0.0, "change": 0.0, "symbol": s}
+                    self.latest_data[s] = {"ltp": 0.0, "change": 0.0, "pct_change": 0.0, "symbol": s}
 
     def start(self):
         if self.running:
@@ -41,25 +40,23 @@ class DataEngine:
         while self.running:
             start_time = time.time()
 
-            # 1. Fetch Data
-            # Optimization: Broker should support fetching multiple LTPs in one call if possible
-            # For now we loop (MockBroker is fast, UpstoxBroker needs bulk fetch impl)
-
             current_symbols = []
             with self.lock:
                 current_symbols = self.subscribed_symbols[:]
 
-            # We assume broker has a bulk fetch or we loop
-            # If broker supports websocket, this loop might just read from a queue
-            # But here we implement Polling as the robust baseline
-
             for symbol in current_symbols:
-                ltp = self.broker.get_ltp(symbol)
+                # Returns dict {ltp, change, pct_change}
+                quote = self.broker.get_ltp(symbol)
+
+                # Check for float fallback
+                if isinstance(quote, float):
+                    quote = {"ltp": quote, "change": 0.0, "pct_change": 0.0}
 
                 tick_data = {
                     "symbol": symbol,
-                    "ltp": ltp,
-                    "change": 0.0
+                    "ltp": quote.get("ltp", 0.0),
+                    "change": quote.get("change", 0.0),
+                    "pct_change": quote.get("pct_change", 0.0)
                 }
 
                 with self.lock:
@@ -69,13 +66,10 @@ class DataEngine:
                 for strategy in self.strategies:
                     if strategy.active:
                         try:
-                            # Run strategy on_tick in a separate thread or non-blocking?
-                            # For now, blocking is safer to ensure order
                             strategy.on_tick(tick_data)
                         except Exception as e:
                             logger.error(f"Error in strategy {strategy.name}: {e}")
 
-            # Sleep remainder of interval
             elapsed = time.time() - start_time
             sleep_time = max(0.0, self.poll_interval - elapsed)
             time.sleep(sleep_time)

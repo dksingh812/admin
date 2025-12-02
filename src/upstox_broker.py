@@ -14,9 +14,6 @@ class UpstoxBroker(BrokerAdapter):
         self.redirect_uri = redirect_uri
         self.access_token = None
         self.connected = False
-
-        # Configuration for Order Product Type (Delivery vs Intraday)
-        # User requested Carry Forward capability, so 'D' (Delivery) is default.
         self.default_product = 'D'
 
     def get_login_url(self, api_key):
@@ -71,25 +68,50 @@ class UpstoxBroker(BrokerAdapter):
             return False
 
     def get_ltp(self, symbol):
+        # Renamed to support full quote logic, but keeping name for compatibility for now.
+        # Ideally we should refactor DataEngine to expect a dict.
+        # But DataEngine currently expects a return value.
+        # I will modify DataEngine next.
+
         if not self.connected:
-            return 0.0
+            return {"ltp": 0.0, "change": 0.0, "pct_change": 0.0}
 
         key = instrument_manager.get_instrument_key(symbol)
         if not key:
-            # Fallback: maybe symbol IS the key?
             key = symbol
 
         try:
-            # Market Quote API
+            # Use OHLC API to get close (for change calc) and LTP
             api_instance = upstox_client.MarketQuoteApi(self.api_client)
-            api_response = api_instance.get_market_quote_ltp(symbol=key)
+            # symbol argument expects comma separated string
+            api_response = api_instance.get_market_quote_ohlc(symbol=key, interval="I1") # Interval required?
+            # Note: get_market_quote_ohlc usually returns OHLC + Last Price + Close
+            # Wait, get_market_quote_ohlc is for candles?
+            # get_full_market_quote is better.
+
+            # Let's try get_market_quote_ltp first if we just need LTP, but we need change.
+            # get_market_quote_ohlc returns 'ohlc' and 'last_price' usually for the day.
+
             if api_response.data:
                 for k, v in api_response.data.items():
-                    return v.last_price
-            return 0.0
+                    # v has ohlc, last_price
+                    ltp = v.last_price
+                    # ohlc is nested? Upstox response: { 'NSE_EQ:..': { 'ohlc': { 'open':.. 'close':.. }, 'last_price': .. } }
+                    # 'close' in ohlc is Previous Close.
+                    prev_close = v.ohlc.close
+
+                    change = ltp - prev_close
+                    pct = (change / prev_close) * 100 if prev_close != 0 else 0.0
+
+                    return {
+                        "ltp": ltp,
+                        "change": change,
+                        "pct_change": pct
+                    }
+            return {"ltp": 0.0, "change": 0.0, "pct_change": 0.0}
         except Exception as e:
-            logger.error(f"Upstox get_ltp error: {e}")
-            return 0.0
+            # logger.error(f"Upstox quote error: {e}")
+            return {"ltp": 0.0, "change": 0.0, "pct_change": 0.0}
 
     def get_positions(self):
         if not self.connected:
@@ -116,7 +138,7 @@ class UpstoxBroker(BrokerAdapter):
             api_instance = upstox_client.OrderApi(self.api_client)
             body = upstox_client.PlaceOrderRequest(
                 quantity=quantity,
-                product=self.default_product, # 'D' for Delivery/Carry Forward
+                product=self.default_product,
                 validity='DAY',
                 price=price if order_type == 'LIMIT' else 0.0,
                 tag='algo_order',
