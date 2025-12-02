@@ -6,6 +6,7 @@ import pandas as pd
 import threading
 from src.config import DATA_DIR
 from src.logger import logger
+from src.default_symbols import DEFAULT_SYMBOLS
 
 INSTRUMENT_FILE = DATA_DIR / "complete_instrument_list.csv"
 
@@ -21,8 +22,9 @@ class InstrumentManager:
     def download_file(self, url, dest_name):
         try:
             logger.info(f"Downloading {dest_name}...")
-            # Set timeout to prevent hanging forever
-            response = requests.get(url, stream=True, timeout=30)
+            # Set timeout to prevent hanging forever. User-Agent helps avoid 403 sometimes.
+            headers = {"User-Agent": "Mozilla/5.0"}
+            response = requests.get(url, stream=True, timeout=30, headers=headers)
             if response.status_code == 200:
                 compressed_file = DATA_DIR / f"{dest_name}.gz"
                 with open(compressed_file, 'wb') as f:
@@ -68,27 +70,32 @@ class InstrumentManager:
 
     def load_instruments(self):
         self.loading = True
+        success = False
         if not INSTRUMENT_FILE.exists():
             success = self.download_instruments()
-            if not success:
-                self.symbol_list = []
-                self.loading = False
-                return
+        else:
+            success = True
 
-        try:
-            logger.info("Loading Instrument CSV into memory...")
-            self.df = pd.read_csv(INSTRUMENT_FILE)
-            if 'tradingsymbol' in self.df.columns:
-                self.symbol_list = self.df['tradingsymbol'].dropna().astype(str).tolist()
-                self.symbol_list.sort()
-                logger.info(f"Loaded {len(self.symbol_list)} instruments.")
-            else:
+        if success:
+            try:
+                logger.info("Loading Instrument CSV into memory...")
+                self.df = pd.read_csv(INSTRUMENT_FILE)
+                if 'tradingsymbol' in self.df.columns:
+                    self.symbol_list = self.df['tradingsymbol'].dropna().astype(str).tolist()
+                    self.symbol_list.sort()
+                    logger.info(f"Loaded {len(self.symbol_list)} instruments.")
+                else:
+                    self.symbol_list = []
+            except Exception as e:
+                logger.error(f"Error loading instrument file: {e}")
                 self.symbol_list = []
-        except Exception as e:
-            logger.error(f"Error loading instrument file: {e}")
-            self.symbol_list = []
-        finally:
-            self.loading = False
+
+        # Fallback if list is empty (Download failed)
+        if not self.symbol_list:
+            logger.warning("Using Default Fallback Symbol List")
+            self.symbol_list = DEFAULT_SYMBOLS
+
+        self.loading = False
 
     def get_instrument_key(self, symbol):
         if self.df is None:

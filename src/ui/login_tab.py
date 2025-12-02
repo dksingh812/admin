@@ -64,8 +64,11 @@ class LoginTab(ttk.Frame):
 
         # Setup Broker
         from src.upstox_broker import UpstoxBroker
-        # Ensure redirect URI matches what we listen on
-        redirect_uri = "http://127.0.0.1:5000/callback"
+
+        # Read Redirect URI from config, default to standard
+        config = self.context.get("config", {})
+        redirect_uri = config.get("redirect_uri", "http://127.0.0.1:5000/callback")
+
         broker = UpstoxBroker(redirect_uri=redirect_uri)
 
         self.context['broker'] = broker
@@ -74,14 +77,22 @@ class LoginTab(ttk.Frame):
         broker.set_risk_engine(self.context['risk_engine'])
 
         # Start Local Server
+        # Parse port from URI
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(redirect_uri)
+            port = parsed.port if parsed.port else 5000
+        except:
+            port = 5000
+
         from src.auth_server import AuthServer
-        server = AuthServer(port=5000)
+        server = AuthServer(port=port)
 
         try:
             server.start_server()
         except Exception as e:
             logger.error(f"Failed to start auth server: {e}")
-            self.lbl_status.config(text=f"Error: Port 5000 busy?", bootstyle="danger")
+            self.lbl_status.config(text=f"Error: Port {port} busy?", bootstyle="danger")
             self.btn_login.config(state="normal")
             return
 
