@@ -37,45 +37,68 @@ class StrategyTab(ttk.Frame):
         leg_frame = ttk.LabelFrame(config_card, text="Option Legs Manager", padding=10)
         leg_frame.pack(fill=tk.BOTH, expand=True, pady=10)
 
-        # Leg Input Row
+        # Leg Input Row (Grid layout for more fields)
         input_row = ttk.Frame(leg_frame)
         input_row.pack(fill=tk.X, pady=5)
 
+        # Headers for Input
+        headers = ["Type", "Strike", "Action", "Qty", "Tgt%", "SL%", "Trail%", "Buf%"]
+        for i, h in enumerate(headers):
+            ttk.Label(input_row, text=h, font=("Arial", 8)).grid(row=0, column=i, padx=2)
+
+        # Inputs
         self.var_type = tk.StringVar(value="CE")
-        ttk.Combobox(input_row, textvariable=self.var_type, values=["CE", "PE", "FUT"], width=5, state="readonly").pack(side=tk.LEFT, padx=2)
+        ttk.Combobox(input_row, textvariable=self.var_type, values=["CE", "PE", "FUT"], width=4, state="readonly").grid(row=1, column=0, padx=2)
 
         self.var_strike = tk.StringVar(value="ATM")
-        ttk.Combobox(input_row, textvariable=self.var_strike, values=["ATM", "ATM+100", "ATM-100", "ATM+200", "ATM-200"], width=10).pack(side=tk.LEFT, padx=2)
+        ttk.Combobox(input_row, textvariable=self.var_strike, values=["ATM", "ATM+100", "ATM-100", "ATM+200", "ATM-200"], width=8).grid(row=1, column=1, padx=2)
 
         self.var_action = tk.StringVar(value="BUY")
-        ttk.Combobox(input_row, textvariable=self.var_action, values=["BUY", "SELL"], width=5, state="readonly").pack(side=tk.LEFT, padx=2)
+        ttk.Combobox(input_row, textvariable=self.var_action, values=["BUY", "SELL"], width=4, state="readonly").grid(row=1, column=2, padx=2)
 
         self.var_qty = tk.StringVar(value="1")
-        ttk.Entry(input_row, textvariable=self.var_qty, width=5).pack(side=tk.LEFT, padx=2)
+        ttk.Entry(input_row, textvariable=self.var_qty, width=4).grid(row=1, column=3, padx=2)
 
-        ttk.Button(input_row, text="+ Add Leg", command=self.add_leg, bootstyle="success-outline").pack(side=tk.LEFT, padx=5)
+        self.var_tgt = tk.StringVar(value="10.0")
+        ttk.Entry(input_row, textvariable=self.var_tgt, width=4).grid(row=1, column=4, padx=2)
+
+        self.var_sl = tk.StringVar(value="5.0")
+        ttk.Entry(input_row, textvariable=self.var_sl, width=4).grid(row=1, column=5, padx=2)
+
+        self.var_trail = tk.StringVar(value="0.0")
+        ttk.Entry(input_row, textvariable=self.var_trail, width=4).grid(row=1, column=6, padx=2)
+
+        self.var_buf = tk.StringVar(value="0.0")
+        ttk.Entry(input_row, textvariable=self.var_buf, width=4).grid(row=1, column=7, padx=2)
+
+        ttk.Button(input_row, text="+", command=self.add_leg, bootstyle="success-outline", width=3).grid(row=1, column=8, padx=5)
 
         # Leg List (Treeview)
-        cols = ("type", "strike", "action", "qty")
+        cols = ("type", "strike", "action", "qty", "tgt", "sl", "trail", "buf")
         self.tree_legs = ttk.Treeview(leg_frame, columns=cols, show="headings", height=5)
-        self.tree_legs.heading("type", text="Type")
-        self.tree_legs.heading("strike", text="Strike")
-        self.tree_legs.heading("action", text="Action")
-        self.tree_legs.heading("qty", text="Lots")
-        self.tree_legs.column("type", width=50)
-        self.tree_legs.column("strike", width=80)
-        self.tree_legs.column("action", width=60)
-        self.tree_legs.column("qty", width=50)
-        self.tree_legs.pack(fill=tk.BOTH, expand=True)
 
-        ttk.Button(leg_frame, text="Remove Selected", command=self.remove_leg, bootstyle="danger-outline").pack(pady=5)
+        self.tree_legs.heading("type", text="Type")
+        self.tree_legs.heading("strike", text="Strk")
+        self.tree_legs.heading("action", text="Side")
+        self.tree_legs.heading("qty", text="Q")
+        self.tree_legs.heading("tgt", text="Tgt")
+        self.tree_legs.heading("sl", text="SL")
+        self.tree_legs.heading("trail", text="Trl")
+        self.tree_legs.heading("buf", text="Buf")
+
+        for c in cols:
+            self.tree_legs.column(c, width=40, anchor="center")
+        self.tree_legs.column("strike", width=70)
+
+        self.tree_legs.pack(fill=tk.BOTH, expand=True, pady=5)
+
+        ttk.Button(leg_frame, text="Remove Selected Leg", command=self.remove_leg, bootstyle="danger-outline").pack(pady=5)
 
         # 4. Global Params
-        params_frame = ttk.LabelFrame(config_card, text="Risk Parameters", padding=10)
+        params_frame = ttk.LabelFrame(config_card, text="Global Risk", padding=10)
         params_frame.pack(fill=tk.X, pady=10)
-        self.create_param_input(params_frame, "Capital (₹)", "50000", 0)
-        self.create_param_input(params_frame, "Stop Loss (%)", "1.0", 1)
-        self.create_param_input(params_frame, "Target (%)", "2.0", 2)
+        self.create_param_input(params_frame, "Max Capital (₹)", "50000", 0)
+        self.create_param_input(params_frame, "Max Loss/Day (₹)", "5000", 1)
 
         # Controls
         btn_frame = ttk.Frame(config_card)
@@ -106,7 +129,10 @@ class StrategyTab(ttk.Frame):
         entry.grid(row=row, column=1, padx=5, pady=5, sticky="w")
 
     def add_leg(self):
-        leg = (self.var_type.get(), self.var_strike.get(), self.var_action.get(), self.var_qty.get())
+        leg = (
+            self.var_type.get(), self.var_strike.get(), self.var_action.get(), self.var_qty.get(),
+            self.var_tgt.get(), self.var_sl.get(), self.var_trail.get(), self.var_buf.get()
+        )
         self.tree_legs.insert("", "end", values=leg)
 
     def remove_leg(self):
@@ -132,12 +158,11 @@ class StrategyTab(ttk.Frame):
             data_engine.subscribe([symbol])
 
         # Configure Strategy
-        # Note: We reuse the existing SMARSIStrategy but inject the leg config
         strategies = self.context.get("strategies", [])
         if strategies:
             s = strategies[0]
             s.set_symbol(symbol)
-            s.legs = legs # Inject legs
+            s.legs = legs # Inject updated legs structure
             if s.start():
                 self.btn_start.config(state="disabled")
                 self.btn_stop.config(state="normal")

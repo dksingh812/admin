@@ -19,6 +19,8 @@ class LoginTab(ttk.Frame):
 
         # Mode Selection
         self.mode_var = tk.StringVar(value="LIVE")
+        self.mode_var.trace("w", self._on_mode_change) # Listen for mode change
+
         frame_mode = ttk.LabelFrame(self, text="Environment")
         frame_mode.pack(fill=tk.X, pady=10)
 
@@ -58,6 +60,17 @@ class LoginTab(ttk.Frame):
         self.lbl_status.pack()
 
         ttk.Label(self, text="Tip: Ensure 'Redirect URI' matches exactly what is in your Upstox App Settings.", font=("Helvetica", 8), bootstyle="secondary").pack()
+
+    def _on_mode_change(self, *args):
+        mode = self.mode_var.get()
+        if mode == "SANDBOX":
+            # Auto-fill provided Sandbox keys for user convenience
+            self.entry_key.delete(0, tk.END)
+            self.entry_key.insert(0, "07dec88c-2500-4b35-a414-c8dee11c5026")
+
+            self.entry_secret.delete(0, tk.END)
+            self.entry_secret.insert(0, "6km8wtodx0")
+        # Else (Live), keep whatever is there or load from config (simplified logic)
 
     def on_login(self):
         mode = self.mode_var.get()

@@ -11,7 +11,7 @@ class Strategy(ABC):
         self.config = config
         self.active = False
         self.target_symbol = None
-        self.legs = [] # List of (Type, Strike, Action, Qty)
+        self.legs = [] # List of (Type, Strike, Action, Qty, Tgt, SL, Trail, Buf)
 
     def set_symbol(self, symbol):
         self.target_symbol = symbol
@@ -52,74 +52,60 @@ class SMARSIStrategy(Strategy):
         return 100 - (100 / (1 + rs)).iloc[-1]
 
     def resolve_leg_symbol(self, underlying, ltp, leg_config):
-        # leg_config: (Type, StrikeOffset, Action, Qty)
-        # Type: CE/PE/FUT
-        # Strike: ATM, ATM+100...
-
-        l_type, l_strike, l_action, l_qty = leg_config
+        # leg_config is tuple of 8 items
+        l_type = leg_config[0]
+        l_strike = leg_config[1]
 
         if l_type == "FUT":
-            # Simple fuzzy search for Future
-            return f"{underlying} FUT" # Placeholder, ideally find near month
+            return f"{underlying} FUT"
 
-        # Option Logic
-        # 1. Calculate Strike
         base = 100
         if "NIFTY" in underlying: base = 50
         if "BANKNIFTY" in underlying: base = 100
 
-        # Round LTP to nearest base
         atm = round(ltp / base) * base
 
-        # Parse Offset
         offset = 0
         if "+" in l_strike: offset = int(l_strike.split("+")[1])
         if "-" in l_strike: offset = -int(l_strike.split("-")[1])
 
         target_strike = atm + offset
 
-        # 2. Find Symbol in Instrument Manager
-        # We need a method in Instrument Manager to find option by (Name, Strike, Type, Expiry)
-        # For now, we construct a likely symbol name or search
-        # Upstox Format: NIFTY23DEC21000CE
-        # We'll try to find it in the loaded DF if possible
-
         found = instrument_manager.find_option(underlying, target_strike, l_type)
         return found if found else f"{underlying} {target_strike} {l_type}"
 
     def execute_legs(self, signal, ltp):
         if not self.legs:
-            # Trade Underlying directly (Cash)
             self.broker.place_order(self.target_symbol, 1, signal)
             return
 
         logger.info(f"Executing {len(self.legs)} legs for signal {signal} at LTP {ltp}")
 
         for leg in self.legs:
-            # leg: (Type, Strike, Action, Qty)
-            l_type, l_strike, l_action, l_qty = leg
+            # Unpack all 8 params
+            # (Type, Strike, Action, Qty, Tgt, SL, Trail, Buf)
+            try:
+                l_type, l_strike, l_action, l_qty, l_tgt, l_sl, l_trail, l_buf = leg
+            except ValueError:
+                # Fallback for old config if tuple size mismatch
+                l_type, l_strike, l_action, l_qty = leg[:4]
+                l_tgt, l_sl, l_trail, l_buf = 0, 0, 0, 0
 
-            # Resolve Symbol
             symbol = self.resolve_leg_symbol(self.target_symbol, ltp, leg)
             if not symbol:
                 logger.error("Could not resolve option symbol")
                 continue
 
-            # Determine Buy/Sell based on Signal AND Leg Action
-            # If Signal is BUY (Entry), we follow Leg Action.
-            # If Signal is SELL (Exit), we invert Leg Action?
-            # Or is Signal purely Directional?
-            # Assuming Signal BUY = Bullish Entry.
-            # If Leg is "BUY CE", we Buy. If Leg is "SELL PE", we Sell.
-
-            # Simplified: Strategy triggers ENTRY. We execute leg actions.
-            # If Strategy triggers EXIT, we inverse.
-
-            final_side = l_action # Default to config
-            if signal == "SELL": # Exit signal
+            final_side = l_action
+            if signal == "SELL":
                 final_side = "SELL" if l_action == "BUY" else "BUY"
 
             qty = int(l_qty)
+
+            # Place Order with Metadata
+            # Note: broker.place_order currently only takes basics.
+            # We log the Risk parameters for now.
+            logger.info(f"Leg Order: {final_side} {qty} {symbol} | Tgt: {l_tgt}%, SL: {l_sl}%")
             self.broker.place_order(symbol, qty, final_side)
 
     def on_tick(self, tick_data):
@@ -145,7 +131,5 @@ class SMARSIStrategy(Strategy):
             self.execute_legs("BUY", price)
 
         elif price < sma and rsi > self.rsi_overbought:
-            logger.info("Signal: BEARISH ENTRY") # Or Exit?
-            # For simplicity, if we are Long, we Exit. If we are flat, we Short?
-            # Here we just execute the "Sell" logic of legs
+            logger.info("Signal: BEARISH ENTRY")
             self.execute_legs("SELL", price)
