@@ -30,12 +30,25 @@ class LoginTab(ttk.Frame):
         frame_creds.pack(fill=tk.X, pady=10)
 
         ttk.Label(frame_creds, text="API Key:").grid(row=0, column=0, padx=5, pady=5)
-        self.entry_key = ttk.Entry(frame_creds, width=40)
+        self.entry_key = ttk.Entry(frame_creds, width=50)
         self.entry_key.grid(row=0, column=1, padx=5, pady=5)
 
         ttk.Label(frame_creds, text="API Secret:").grid(row=1, column=0, padx=5, pady=5)
-        self.entry_secret = ttk.Entry(frame_creds, show="*", width=40)
+        self.entry_secret = ttk.Entry(frame_creds, show="*", width=50)
         self.entry_secret.grid(row=1, column=1, padx=5, pady=5)
+
+        # Redirect URI (Exposed for easier debugging)
+        ttk.Label(frame_creds, text="Redirect URI:").grid(row=2, column=0, padx=5, pady=5)
+        self.entry_uri = ttk.Entry(frame_creds, width=50)
+        self.entry_uri.grid(row=2, column=1, padx=5, pady=5)
+
+        # Load defaults
+        config = self.context.get("config", {})
+        if config.get("api_key"): self.entry_key.insert(0, config["api_key"])
+        if config.get("api_secret"): self.entry_secret.insert(0, config["api_secret"])
+
+        default_uri = config.get("redirect_uri", "http://127.0.0.1:5000/callback")
+        self.entry_uri.insert(0, default_uri)
 
         # Action Buttons
         self.btn_login = ttk.Button(self, text="Login & Authorize", command=self.on_login, bootstyle="primary")
@@ -44,48 +57,34 @@ class LoginTab(ttk.Frame):
         self.lbl_status = ttk.Label(self, text="Status: Disconnected")
         self.lbl_status.pack()
 
-        # Load from config if available
-        config = self.context.get("config", {})
-        if config.get("api_key"):
-            self.entry_key.insert(0, config["api_key"])
-        if config.get("api_secret"):
-            self.entry_secret.insert(0, config["api_secret"])
+        ttk.Label(self, text="Tip: Ensure 'Redirect URI' matches exactly what is in your Upstox App Settings.", font=("Helvetica", 8), bootstyle="secondary").pack()
 
     def on_login(self):
         mode = self.mode_var.get()
         api_key = self.entry_key.get()
         api_secret = self.entry_secret.get()
+        redirect_uri = self.entry_uri.get().strip()
 
-        logger.info(f"Initiating Login. Mode: {mode}")
+        logger.info(f"Initiating Login. Mode: {mode}, URI: {redirect_uri}")
 
-        # Disable button
         self.btn_login.config(state="disabled")
         self.lbl_status.config(text="Status: Waiting for Browser Login...", bootstyle="warning")
 
         # Setup Broker
         from src.upstox_broker import UpstoxBroker
-
-        # Read Redirect URI from config
-        config = self.context.get("config", {})
-        redirect_uri = config.get("redirect_uri", "http://127.0.0.1:5000/callback")
-
         broker = UpstoxBroker(redirect_uri=redirect_uri)
 
-        # ----------------------------------------------------
-        # CRITICAL: Update Context references
-        # ----------------------------------------------------
+        # Update Context
         self.context['broker'] = broker
         self.context['data_engine'].broker = broker
         self.context['risk_engine'].broker = broker
         broker.set_risk_engine(self.context['risk_engine'])
 
-        # Update Broker in Strategies too (otherwise they keep using MockBroker)
+        # Update Strategies
         for strategy in self.context.get('strategies', []):
             strategy.broker = broker
-            logger.info(f"Updated broker for strategy: {strategy.name}")
-        # ----------------------------------------------------
 
-        # Start Local Server
+        # Start Server
         try:
             from urllib.parse import urlparse
             parsed = urlparse(redirect_uri)
@@ -108,24 +107,24 @@ class LoginTab(ttk.Frame):
         login_url = broker.get_login_url(api_key)
         webbrowser.open(login_url)
 
-        # Run waiting loop
-        threading.Thread(target=self.wait_for_auth, args=(server, broker, api_key, api_secret), daemon=True).start()
+        threading.Thread(target=self.wait_for_auth, args=(server, broker, api_key, api_secret, redirect_uri), daemon=True).start()
 
-    def wait_for_auth(self, server, broker, api_key, api_secret):
+    def wait_for_auth(self, server, broker, api_key, api_secret, redirect_uri):
         code = server.wait_for_code(timeout=120)
         if code:
-            self.after(0, lambda: self.finish_login(broker, api_key, api_secret, code))
+            self.after(0, lambda: self.finish_login(broker, api_key, api_secret, code, redirect_uri))
         else:
             self.after(0, lambda: self.fail_login("Timeout"))
 
-    def finish_login(self, broker, api_key, api_secret, code):
+    def finish_login(self, broker, api_key, api_secret, code, redirect_uri):
         if broker.authenticate(api_key, api_secret, code=code):
             self.lbl_status.config(text="Status: Connected Successfully", bootstyle="success")
 
-            # Save credentials
+            # Save credentials & URI
             config = self.context.get("config", {})
             config["api_key"] = api_key
             config["api_secret"] = api_secret
+            config["redirect_uri"] = redirect_uri
             from src.config import save_config
             save_config(config)
 

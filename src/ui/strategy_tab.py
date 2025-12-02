@@ -11,56 +11,83 @@ class StrategyTab(ttk.Frame):
         self.context = context
         self.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
 
-        # Two columns layout
+        # Layout
         left_col = ttk.Frame(self)
         left_col.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
-
         right_col = ttk.Frame(self)
         right_col.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(10, 0))
 
-        # --- Left Column: Configuration ---
-        config_card = ttk.Labelframe(left_col, text="Configuration", padding=15, bootstyle="primary")
+        # --- CONFIGURATION (Left) ---
+        config_card = ttk.Labelframe(left_col, text="Strategy Configuration", padding=15, bootstyle="primary")
         config_card.pack(fill=tk.BOTH, expand=True)
 
-        # Strategy Selector
-        ttk.Label(config_card, text="Strategy Algorithm", font=("Helvetica", 10, "bold")).pack(anchor="w", pady=(0, 5))
-        self.combo_strategy = ttk.Combobox(config_card, values=["SMA_RSI"], state="readonly")
-        self.combo_strategy.current(0)
-        self.combo_strategy.pack(fill=tk.X, pady=(0, 15))
-
-        # Symbol Selector (Searchable)
-        ttk.Label(config_card, text="Trading Symbol", font=("Helvetica", 10, "bold")).pack(anchor="w", pady=(0, 5))
-
-        # We start with empty list, will populate if loaded
+        # 1. Base Symbol
+        ttk.Label(config_card, text="Underlying Symbol (e.g. NIFTY)", font=("Helvetica", 10, "bold")).pack(anchor="w")
         self.combo_symbol = SearchableCombobox(config_card, all_values=[])
-        self.combo_symbol.pack(fill=tk.X, pady=(0, 15))
-
-        # Check if instruments are already loaded, else show placeholder
+        self.combo_symbol.pack(fill=tk.X, pady=(0, 10))
         self.refresh_symbols()
 
-        # Parameters
-        params_frame = ttk.LabelFrame(config_card, text="Parameters", padding=10)
-        params_frame.pack(fill=tk.X, pady=10)
+        # 2. Strategy Logic
+        ttk.Label(config_card, text="Signal Logic", font=("Helvetica", 10, "bold")).pack(anchor="w")
+        self.combo_strategy = ttk.Combobox(config_card, values=["SMA_RSI_Options"], state="readonly")
+        self.combo_strategy.current(0)
+        self.combo_strategy.pack(fill=tk.X, pady=(0, 10))
 
-        self.create_param_input(params_frame, "Capital (₹)", "10000", 0)
+        # 3. Leg Builder
+        leg_frame = ttk.LabelFrame(config_card, text="Option Legs Manager", padding=10)
+        leg_frame.pack(fill=tk.BOTH, expand=True, pady=10)
+
+        # Leg Input Row
+        input_row = ttk.Frame(leg_frame)
+        input_row.pack(fill=tk.X, pady=5)
+
+        self.var_type = tk.StringVar(value="CE")
+        ttk.Combobox(input_row, textvariable=self.var_type, values=["CE", "PE", "FUT"], width=5, state="readonly").pack(side=tk.LEFT, padx=2)
+
+        self.var_strike = tk.StringVar(value="ATM")
+        ttk.Combobox(input_row, textvariable=self.var_strike, values=["ATM", "ATM+100", "ATM-100", "ATM+200", "ATM-200"], width=10).pack(side=tk.LEFT, padx=2)
+
+        self.var_action = tk.StringVar(value="BUY")
+        ttk.Combobox(input_row, textvariable=self.var_action, values=["BUY", "SELL"], width=5, state="readonly").pack(side=tk.LEFT, padx=2)
+
+        self.var_qty = tk.StringVar(value="1")
+        ttk.Entry(input_row, textvariable=self.var_qty, width=5).pack(side=tk.LEFT, padx=2)
+
+        ttk.Button(input_row, text="+ Add Leg", command=self.add_leg, bootstyle="success-outline").pack(side=tk.LEFT, padx=5)
+
+        # Leg List (Treeview)
+        cols = ("type", "strike", "action", "qty")
+        self.tree_legs = ttk.Treeview(leg_frame, columns=cols, show="headings", height=5)
+        self.tree_legs.heading("type", text="Type")
+        self.tree_legs.heading("strike", text="Strike")
+        self.tree_legs.heading("action", text="Action")
+        self.tree_legs.heading("qty", text="Lots")
+        self.tree_legs.column("type", width=50)
+        self.tree_legs.column("strike", width=80)
+        self.tree_legs.column("action", width=60)
+        self.tree_legs.column("qty", width=50)
+        self.tree_legs.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Button(leg_frame, text="Remove Selected", command=self.remove_leg, bootstyle="danger-outline").pack(pady=5)
+
+        # 4. Global Params
+        params_frame = ttk.LabelFrame(config_card, text="Risk Parameters", padding=10)
+        params_frame.pack(fill=tk.X, pady=10)
+        self.create_param_input(params_frame, "Capital (₹)", "50000", 0)
         self.create_param_input(params_frame, "Stop Loss (%)", "1.0", 1)
         self.create_param_input(params_frame, "Target (%)", "2.0", 2)
 
-        # Start/Stop Buttons
+        # Controls
         btn_frame = ttk.Frame(config_card)
         btn_frame.pack(fill=tk.X, pady=20)
+        self.btn_start = ttk.Button(btn_frame, text="START STRATEGY", bootstyle="success", command=self.start_strategy)
+        self.btn_start.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        self.btn_stop = ttk.Button(btn_frame, text="STOP", bootstyle="danger", command=self.stop_strategy, state="disabled")
+        self.btn_stop.pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=5)
 
-        self.btn_start = ttk.Button(btn_frame, text="START ENGINE", bootstyle="success", command=self.start_strategy)
-        self.btn_start.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
-
-        self.btn_stop = ttk.Button(btn_frame, text="STOP ENGINE", bootstyle="danger", command=self.stop_strategy)
-        self.btn_stop.pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=(5, 0))
-        self.btn_stop.config(state="disabled")
-
-        # --- Right Column: Logs/Output ---
-        log_card = ttk.Labelframe(right_col, text="Live Execution Logs", padding=15, bootstyle="secondary")
+        # --- LOGS (Right) ---
+        log_card = ttk.Labelframe(right_col, text="Strategy Logs", padding=15)
         log_card.pack(fill=tk.BOTH, expand=True)
-
         self.txt_log = tk.Text(log_card, height=20, font=("Consolas", 9))
         self.txt_log.pack(fill=tk.BOTH, expand=True)
 
@@ -69,9 +96,7 @@ class StrategyTab(ttk.Frame):
         if all_symbols:
             self.combo_symbol.set_values(all_symbols)
         else:
-            # Maybe loading?
-            self.combo_symbol.set_values(["Loading Instruments...", "NIFTY 50", "BANKNIFTY"])
-            # Retry after 2 seconds
+            self.combo_symbol.set_values(["Loading..."])
             self.after(2000, self.refresh_symbols)
 
     def create_param_input(self, parent, label, default, row):
@@ -80,30 +105,44 @@ class StrategyTab(ttk.Frame):
         entry.insert(0, default)
         entry.grid(row=row, column=1, padx=5, pady=5, sticky="w")
 
+    def add_leg(self):
+        leg = (self.var_type.get(), self.var_strike.get(), self.var_action.get(), self.var_qty.get())
+        self.tree_legs.insert("", "end", values=leg)
+
+    def remove_leg(self):
+        sel = self.tree_legs.selection()
+        for item in sel:
+            self.tree_legs.delete(item)
+
     def start_strategy(self):
         symbol = self.combo_symbol.get()
         if not symbol or "Loading" in symbol:
-            self.log_message("Error: Please select a valid symbol.")
+            self.log_message("Error: Select a valid underlying.")
             return
 
-        self.log_message(f"Initializing Strategy on {symbol}...")
+        legs = []
+        for child in self.tree_legs.get_children():
+            legs.append(self.tree_legs.item(child)["values"])
 
-        # 1. Subscribe to Data Engine
+        self.log_message(f"Starting on {symbol} with {len(legs)} legs...")
+
+        # Subscribe
         data_engine = self.context.get("data_engine")
         if data_engine:
             data_engine.subscribe([symbol])
-            self.log_message(f"Subscribed to {symbol} feed.")
 
-        # 2. Configure and Start Strategy
+        # Configure Strategy
+        # Note: We reuse the existing SMARSIStrategy but inject the leg config
         strategies = self.context.get("strategies", [])
         if strategies:
             s = strategies[0]
             s.set_symbol(symbol)
+            s.legs = legs # Inject legs
             if s.start():
                 self.btn_start.config(state="disabled")
                 self.btn_stop.config(state="normal")
             else:
-                self.log_message("Error: Failed to start strategy.")
+                self.log_message("Failed to start.")
 
     def stop_strategy(self):
         strategies = self.context.get("strategies", [])
@@ -111,7 +150,7 @@ class StrategyTab(ttk.Frame):
             strategies[0].stop()
             self.btn_start.config(state="normal")
             self.btn_stop.config(state="disabled")
-            self.log_message("Strategy Stopped.")
+            self.log_message("Stopped.")
 
     def log_message(self, msg):
         self.txt_log.insert(tk.END, f">> {msg}\n")
