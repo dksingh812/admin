@@ -5,7 +5,6 @@ import traceback
 import tkinter as tk
 from tkinter import messagebox
 
-# Global Error Handler
 def handle_crash(exc_type, exc_value, exc_traceback):
     error_msg = "".join(traceback.format_exception(exc_type, exc_value, exc_traceback))
     with open("crash_log.txt", "w") as f:
@@ -30,6 +29,7 @@ try:
     from src.risk_engine import RiskEngine
     from src.ui.main_app import MainApp
     from src.strategies.sma_rsi import SMARSIStrategy
+    from src.global_market_scraper import global_market_scraper
 except ImportError as e:
     handle_crash(ImportError, e, sys.exc_info()[2])
 
@@ -51,7 +51,10 @@ def main():
         "strategies": []
     }
 
-    # Subscribe to Major Indices
+    # Start Global Scraper (Background)
+    global_market_scraper.start(interval=30) # Refresh every 30s
+
+    # Subscribe to Major Indian Indices
     indices = ["NIFTY 50", "BANKNIFTY", "FINNIFTY", "SENSEX", "INDIA VIX"]
     data_engine.subscribe(indices)
     data_engine.set_interval(1.0)
