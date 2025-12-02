@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 import ttkbootstrap as tb
 from src.logger import logger
 import webbrowser
@@ -19,7 +19,7 @@ class LoginTab(ttk.Frame):
 
         # Mode Selection
         self.mode_var = tk.StringVar(value="LIVE")
-        self.mode_var.trace("w", self._on_mode_change) # Listen for mode change
+        self.mode_var.trace("w", self._on_mode_change)
 
         frame_mode = ttk.LabelFrame(self, text="Environment")
         frame_mode.pack(fill=tk.X, pady=10)
@@ -39,7 +39,7 @@ class LoginTab(ttk.Frame):
         self.entry_secret = ttk.Entry(frame_creds, show="*", width=50)
         self.entry_secret.grid(row=1, column=1, padx=5, pady=5)
 
-        # Redirect URI (Exposed for easier debugging)
+        # Redirect URI
         ttk.Label(frame_creds, text="Redirect URI:").grid(row=2, column=0, padx=5, pady=5)
         self.entry_uri = ttk.Entry(frame_creds, width=50)
         self.entry_uri.grid(row=2, column=1, padx=5, pady=5)
@@ -64,13 +64,10 @@ class LoginTab(ttk.Frame):
     def _on_mode_change(self, *args):
         mode = self.mode_var.get()
         if mode == "SANDBOX":
-            # Auto-fill provided Sandbox keys for user convenience
             self.entry_key.delete(0, tk.END)
             self.entry_key.insert(0, "07dec88c-2500-4b35-a414-c8dee11c5026")
-
             self.entry_secret.delete(0, tk.END)
             self.entry_secret.insert(0, "6km8wtodx0")
-        # Else (Live), keep whatever is there or load from config (simplified logic)
 
     def on_login(self):
         mode = self.mode_var.get()
@@ -87,13 +84,11 @@ class LoginTab(ttk.Frame):
         from src.upstox_broker import UpstoxBroker
         broker = UpstoxBroker(redirect_uri=redirect_uri)
 
-        # Update Context
         self.context['broker'] = broker
         self.context['data_engine'].broker = broker
         self.context['risk_engine'].broker = broker
         broker.set_risk_engine(self.context['risk_engine'])
 
-        # Update Strategies
         for strategy in self.context.get('strategies', []):
             strategy.broker = broker
 
@@ -133,7 +128,6 @@ class LoginTab(ttk.Frame):
         if broker.authenticate(api_key, api_secret, code=code):
             self.lbl_status.config(text="Status: Connected Successfully", bootstyle="success")
 
-            # Save credentials & URI
             config = self.context.get("config", {})
             config["api_key"] = api_key
             config["api_secret"] = api_secret
@@ -143,6 +137,7 @@ class LoginTab(ttk.Frame):
 
         else:
             self.lbl_status.config(text="Status: Auth Failed at Upstox", bootstyle="danger")
+            messagebox.showerror("Login Failed", "Upstox rejected the login.\n\nPossible Causes:\n1. Incorrect API Key/Secret.\n2. Mismatched Redirect URI.\n\nCheck 'crash_log.txt' or console for details.")
 
         self.btn_login.config(state="normal")
 
