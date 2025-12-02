@@ -65,19 +65,27 @@ class LoginTab(ttk.Frame):
         # Setup Broker
         from src.upstox_broker import UpstoxBroker
 
-        # Read Redirect URI from config, default to standard
+        # Read Redirect URI from config
         config = self.context.get("config", {})
         redirect_uri = config.get("redirect_uri", "http://127.0.0.1:5000/callback")
 
         broker = UpstoxBroker(redirect_uri=redirect_uri)
 
+        # ----------------------------------------------------
+        # CRITICAL: Update Context references
+        # ----------------------------------------------------
         self.context['broker'] = broker
         self.context['data_engine'].broker = broker
         self.context['risk_engine'].broker = broker
         broker.set_risk_engine(self.context['risk_engine'])
 
+        # Update Broker in Strategies too (otherwise they keep using MockBroker)
+        for strategy in self.context.get('strategies', []):
+            strategy.broker = broker
+            logger.info(f"Updated broker for strategy: {strategy.name}")
+        # ----------------------------------------------------
+
         # Start Local Server
-        # Parse port from URI
         try:
             from urllib.parse import urlparse
             parsed = urlparse(redirect_uri)
@@ -100,12 +108,11 @@ class LoginTab(ttk.Frame):
         login_url = broker.get_login_url(api_key)
         webbrowser.open(login_url)
 
-        # Run waiting loop in a separate thread to not freeze UI
+        # Run waiting loop
         threading.Thread(target=self.wait_for_auth, args=(server, broker, api_key, api_secret), daemon=True).start()
 
     def wait_for_auth(self, server, broker, api_key, api_secret):
-        code = server.wait_for_code(timeout=120) # 2 minutes timeout
-
+        code = server.wait_for_code(timeout=120)
         if code:
             self.after(0, lambda: self.finish_login(broker, api_key, api_secret, code))
         else:

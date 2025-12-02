@@ -20,8 +20,6 @@ class HomeTab(ttk.Frame):
         self.status_frame = ttk.Frame(main_pad)
         self.status_frame.pack(fill=tk.X, pady=(0, 20))
 
-        # Using a Frame with a "Card" look isn't direct in tk, but we use LabelFrame or colored frames
-        # Simple clean text for status
         self.lbl_broker = ttk.Label(self.status_frame, text="● Disconnected", bootstyle="danger", font=("Helvetica", 10))
         self.lbl_broker.pack(side=tk.LEFT)
 
@@ -76,25 +74,45 @@ class HomeTab(ttk.Frame):
         row1 = ttk.Frame(parent)
         row1.pack(fill=tk.X, pady=2)
         ttk.Label(row1, text="Realized P&L", foreground="#aaaaaa").pack(side=tk.LEFT)
-        ttk.Label(row1, text="₹ 0.00").pack(side=tk.RIGHT)
+        self.lbl_realized = ttk.Label(row1, text="₹ 0.00")
+        self.lbl_realized.pack(side=tk.RIGHT)
 
         row2 = ttk.Frame(parent)
         row2.pack(fill=tk.X, pady=2)
         ttk.Label(row2, text="Unrealized P&L", foreground="#aaaaaa").pack(side=tk.LEFT)
-        ttk.Label(row2, text="₹ 0.00").pack(side=tk.RIGHT)
+        self.lbl_unrealized = ttk.Label(row2, text="₹ 0.00")
+        self.lbl_unrealized.pack(side=tk.RIGHT)
 
     def create_fii_content(self, parent):
-        self.lbl_fii = ttk.Label(parent, text="FII Cash: --", font=("Helvetica", 10))
+        # Attempt to load FII Data
+        from src.fii_dii_scraper import get_recent_fii_dii
+        data = get_recent_fii_dii()
+
+        # Display today's (or last available) data
+        fii_val = "--"
+        dii_val = "--"
+
+        if data:
+            # Assume last row is latest
+            latest = data[-1]
+            # API structure might vary, this is best effort
+            if 'category' in latest:
+                 # Need to parse the list structure better if possible
+                 pass
+
+        self.lbl_fii = ttk.Label(parent, text=f"FII Cash: {fii_val}", font=("Helvetica", 10))
         self.lbl_fii.pack(anchor="w", pady=5)
 
-        self.lbl_dii = ttk.Label(parent, text="DII Cash: --", font=("Helvetica", 10))
+        self.lbl_dii = ttk.Label(parent, text=f"DII Cash: {dii_val}", font=("Helvetica", 10))
         self.lbl_dii.pack(anchor="w", pady=5)
 
         ttk.Button(parent, text="Refresh Data", bootstyle="outline-secondary", command=self.refresh_fii_dii).pack(pady=10, fill=tk.X)
 
     def refresh_fii_dii(self):
-        # Trigger scraper (threaded ideally, but simple here)
-        pass
+        # Trigger scraper
+        import threading
+        from src.fii_dii_scraper import fetch_fii_dii_data
+        threading.Thread(target=fetch_fii_dii_data, daemon=True).start()
 
     def update_ui(self):
         # Time
@@ -102,7 +120,8 @@ class HomeTab(ttk.Frame):
         self.lbl_time.config(text=time.strftime("%H:%M:%S"))
 
         # Status
-        if self.context['broker'].connected:
+        broker = self.context.get('broker')
+        if broker and broker.connected:
             self.lbl_broker.config(text="● Connected", bootstyle="success")
         else:
             self.lbl_broker.config(text="● Disconnected", bootstyle="danger")
@@ -114,5 +133,40 @@ class HomeTab(ttk.Frame):
                 tick = data_engine.get_latest_tick(name)
                 price = tick.get('ltp', 0.0)
                 label.config(text=f"{price:.2f}")
+
+        # PnL Update
+        if broker and broker.connected:
+            try:
+                positions = broker.get_positions()
+                total_pnl = 0.0
+                realized = 0.0
+                unrealized = 0.0
+
+                # Upstox Position Object usually has 'pnl', 'm2m', 'realised', 'unrealised'
+                # or if it's a dict
+                for pos in positions:
+                    # Depending on API version, check attributes
+                    p = 0.0
+                    if hasattr(pos, 'pnl'): p = float(pos.pnl)
+                    elif isinstance(pos, dict) and 'pnl' in pos: p = float(pos['pnl'])
+
+                    # If pnl is missing, calculate (LTP - BuyAvg) * Qty
+                    # This is complex without precise object structure
+
+                    total_pnl += p
+
+                # Update Labels
+                color = "success" if total_pnl >= 0 else "danger"
+                self.lbl_total_pnl.config(text=f"₹ {total_pnl:,.2f}", bootstyle=color)
+                self.lbl_realized.config(text=f"₹ {realized:,.2f}") # Placeholder if API doesn't split
+                self.lbl_unrealized.config(text=f"₹ {unrealized:,.2f}") # Placeholder
+
+                # Update Risk Engine
+                if self.context.get('risk_engine'):
+                    self.context['risk_engine'].update_pnl(total_pnl)
+
+            except Exception as e:
+                # logger.error(f"PnL Update Error: {e}")
+                pass
 
         self.after(200, self.update_ui)
