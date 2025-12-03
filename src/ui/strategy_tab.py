@@ -100,9 +100,6 @@ class StrategyTab(ttk.Frame):
         win.title("Create Strategy")
         win.geometry("900x600")
 
-        # --- Copying the Leg Builder UI here ---
-        # (Simplified version of previous code)
-
         frame = ttk.Frame(win, padding=20)
         frame.pack(fill=tk.BOTH, expand=True)
 
@@ -125,7 +122,14 @@ class StrategyTab(ttk.Frame):
         v_type = tk.StringVar(value="CE")
         ttk.Combobox(i_row, textvariable=v_type, values=["CE","PE","FUT"], width=5).pack(side=tk.LEFT)
         v_str = tk.StringVar(value="ATM")
-        ttk.Combobox(i_row, textvariable=v_str, values=["ATM","ATM+100","ATM-100"], width=10).pack(side=tk.LEFT)
+
+        # Enhanced Strike List
+        strikes = ["ATM"]
+        for i in [50, 100, 150, 200]:
+            strikes.append(f"ATM+{i}")
+            strikes.append(f"ATM-{i}")
+
+        ttk.Combobox(i_row, textvariable=v_str, values=strikes, width=10).pack(side=tk.LEFT)
         v_act = tk.StringVar(value="BUY")
         ttk.Combobox(i_row, textvariable=v_act, values=["BUY","SELL"], width=5).pack(side=tk.LEFT)
         v_qty = tk.StringVar(value="1")
