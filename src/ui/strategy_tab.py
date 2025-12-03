@@ -14,6 +14,9 @@ class StrategyCard(ttk.Frame):
         self.on_square_off = on_square_off
         self.pack(fill=tk.X, pady=5)
 
+        # Row Layout
+        # Name | Status | PnL | Buttons
+
         lbl_name = ttk.Label(self, text=f"{strategy.target_symbol}\n{strategy.name}", font=("Helvetica", 10, "bold"))
         lbl_name.pack(side=tk.LEFT, padx=10)
 
@@ -82,68 +85,107 @@ class StrategyTab(ttk.Frame):
 
     def open_creator(self):
         win = tb.Toplevel(self)
-        win.title("Create Strategy")
-        win.geometry("900x600")
+        win.title("Create Multi-Leg Strategy")
+        win.geometry("1100x700") # Wider
 
         frame = ttk.Frame(win, padding=20)
         frame.pack(fill=tk.BOTH, expand=True)
 
-        ttk.Label(frame, text="Symbol:").pack(anchor="w")
-        cb_sym = SearchableCombobox(frame, all_values=instrument_manager.get_all_symbols())
-        cb_sym.pack(fill=tk.X, pady=5)
+        # --- Top: Symbol & Config ---
+        f_top = ttk.Frame(frame)
+        f_top.pack(fill=tk.X, pady=10)
+
+        ttk.Label(f_top, text="Underlying Symbol:").pack(side=tk.LEFT, padx=5)
+        cb_sym = SearchableCombobox(f_top, all_values=instrument_manager.get_all_symbols(), width=30)
+        cb_sym.pack(side=tk.LEFT, padx=5)
         if instrument_manager.get_all_symbols(): cb_sym.set_values(instrument_manager.get_all_symbols())
 
-        cols = ("type", "strike", "action", "qty", "tgt", "sl", "trail", "buf")
-        tree = ttk.Treeview(frame, columns=cols, show="headings", height=8)
-        for c in cols: tree.heading(c, text=c.upper()); tree.column(c, width=60)
-        tree.pack(fill=tk.BOTH, expand=True, pady=10)
+        # --- Middle: Leg List ---
+        f_list = ttk.Labelframe(frame, text="Configured Legs", padding=10)
+        f_list.pack(fill=tk.BOTH, expand=True, pady=10)
 
-        i_row = ttk.Frame(frame)
-        i_row.pack(fill=tk.X)
+        cols = ("type", "strike", "action", "qty", "tgt", "tgt_u", "sl", "sl_u", "trail", "trail_u", "buf", "buf_u")
+        tree = ttk.Treeview(f_list, columns=cols, show="headings", height=6)
 
-        # Headers for input row to make it clear
-        # (Implicit labels above inputs)
+        # Headers
+        h_map = {
+            "type": "Type", "strike": "Strike", "action": "Side", "qty": "Qty",
+            "tgt": "Target", "tgt_u": "Unit",
+            "sl": "SL", "sl_u": "Unit",
+            "trail": "Trail", "trail_u": "Unit",
+            "buf": "Buffer", "buf_u": "Unit"
+        }
+        for c in cols:
+            tree.heading(c, text=h_map[c])
+            w = 40 if "_u" in c else 60
+            tree.column(c, width=w, anchor="center")
 
+        tree.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Button(f_list, text="Remove Selected", bootstyle="danger-outline",
+                   command=lambda: [tree.delete(x) for x in tree.selection()]).pack(anchor="e", pady=5)
+
+        # --- Bottom: Add Leg Form (Spacious) ---
+        f_add = ttk.Labelframe(frame, text="Add New Leg", padding=15, bootstyle="info")
+        f_add.pack(fill=tk.X, pady=10)
+
+        # Row 1: Instrument Basics
+        r1 = ttk.Frame(f_add)
+        r1.pack(fill=tk.X, pady=5)
+
+        ttk.Label(r1, text="Instrument Type:", width=15).pack(side=tk.LEFT)
         v_type = tk.StringVar(value="CE")
-        ttk.Combobox(i_row, textvariable=v_type, values=["CE","PE","FUT"], width=4).pack(side=tk.LEFT)
+        ttk.Combobox(r1, textvariable=v_type, values=["CE","PE","FUT"], width=10, state="readonly").pack(side=tk.LEFT, padx=5)
 
+        ttk.Label(r1, text="Strike:", width=10).pack(side=tk.LEFT, padx=(20, 0))
         v_str = tk.StringVar(value="ATM")
-        strikes = ["ATM"]
-        for i in [50, 100, 150, 200]:
-            strikes.append(f"ATM+{i}")
-            strikes.append(f"ATM-{i}")
-        ttk.Combobox(i_row, textvariable=v_str, values=strikes, width=8).pack(side=tk.LEFT)
+        strikes = ["ATM"] + [f"ATM{s}{i}" for s in ["+","-"] for i in [50,100,150,200,250,300,400,500]]
+        ttk.Combobox(r1, textvariable=v_str, values=strikes, width=15).pack(side=tk.LEFT, padx=5)
 
+        ttk.Label(r1, text="Action:", width=10).pack(side=tk.LEFT, padx=(20, 0))
         v_act = tk.StringVar(value="BUY")
-        ttk.Combobox(i_row, textvariable=v_act, values=["BUY","SELL"], width=4).pack(side=tk.LEFT)
+        ttk.Combobox(r1, textvariable=v_act, values=["BUY","SELL"], width=10, state="readonly").pack(side=tk.LEFT, padx=5)
 
+        ttk.Label(r1, text="Qty:", width=5).pack(side=tk.LEFT, padx=(20, 0))
         v_qty = tk.StringVar(value="1")
-        ttk.Entry(i_row, textvariable=v_qty, width=4).pack(side=tk.LEFT)
+        ttk.Entry(r1, textvariable=v_qty, width=8).pack(side=tk.LEFT, padx=5)
 
-        # New Inputs for Risk
-        v_tgt = tk.StringVar(value="10")
-        ttk.Entry(i_row, textvariable=v_tgt, width=4).pack(side=tk.LEFT, padx=1)
-        ttk.Label(i_row, text="T%", font=("Arial", 7)).pack(side=tk.LEFT)
+        # Row 2: Risk Params (Wider inputs with units)
+        r2 = ttk.Frame(f_add)
+        r2.pack(fill=tk.X, pady=10)
 
-        v_sl = tk.StringVar(value="5")
-        ttk.Entry(i_row, textvariable=v_sl, width=4).pack(side=tk.LEFT, padx=1)
-        ttk.Label(i_row, text="S%", font=("Arial", 7)).pack(side=tk.LEFT)
+        def create_field(parent, label, default_val):
+            f = ttk.Frame(parent)
+            f.pack(side=tk.LEFT, padx=10)
+            ttk.Label(f, text=label, font=("Arial", 8)).pack(anchor="w")
 
-        v_trail = tk.StringVar(value="0")
-        ttk.Entry(i_row, textvariable=v_trail, width=4).pack(side=tk.LEFT, padx=1)
-        ttk.Label(i_row, text="Tr%", font=("Arial", 7)).pack(side=tk.LEFT)
+            sub = ttk.Frame(f)
+            sub.pack()
+            val = tk.StringVar(value=default_val)
+            ttk.Entry(sub, textvariable=val, width=8).pack(side=tk.LEFT)
 
-        v_buf = tk.StringVar(value="0")
-        ttk.Entry(i_row, textvariable=v_buf, width=4).pack(side=tk.LEFT, padx=1)
+            unit = tk.StringVar(value="%")
+            ttk.Combobox(sub, textvariable=unit, values=["%", "Pts"], width=4, state="readonly").pack(side=tk.LEFT)
+            return val, unit
 
+        v_tgt, u_tgt = create_field(r2, "Target", "10")
+        v_sl, u_sl = create_field(r2, "Stop Loss", "5")
+        v_trail, u_trail = create_field(r2, "Trailing SL", "0")
+        v_buf, u_buf = create_field(r2, "Buffer", "0")
+
+        # Add Button
         def add_leg():
             tree.insert("", "end", values=(
                 v_type.get(), v_str.get(), v_act.get(), v_qty.get(),
-                v_tgt.get(), v_sl.get(), v_trail.get(), v_buf.get()
+                v_tgt.get(), u_tgt.get(),
+                v_sl.get(), u_sl.get(),
+                v_trail.get(), u_trail.get(),
+                v_buf.get(), u_buf.get()
             ))
 
-        ttk.Button(i_row, text="+", command=add_leg).pack(side=tk.LEFT, padx=5)
+        ttk.Button(r2, text="+ ADD LEG TO LIST", bootstyle="success", command=add_leg).pack(side=tk.RIGHT, padx=20)
 
+        # --- Deploy ---
         def deploy():
             sym = cb_sym.get()
             legs = []
@@ -159,4 +201,4 @@ class StrategyTab(ttk.Frame):
             self.add_strategy_card(strategy)
             win.destroy()
 
-        ttk.Button(frame, text="DEPLOY STRATEGY", bootstyle="success", command=deploy).pack(fill=tk.X, pady=20)
+        ttk.Button(frame, text="DEPLOY STRATEGY", bootstyle="primary", command=deploy).pack(fill=tk.X, pady=10)
