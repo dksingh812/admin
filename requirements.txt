@@ -1,0 +1,8 @@
+requests
+pandas
+ttkbootstrap
+upstox-python-sdk
+beautifulsoup4
+openpyxl
+cryptography
+yfinance
