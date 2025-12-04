@@ -59,6 +59,9 @@ class LoginTab(ttk.Frame):
         self.entry_uri.insert(0, "http://127.0.0.1:5000/callback")
         self.entry_uri.grid(row=2, column=1, padx=5, pady=5)
 
+        self.lbl_sandbox_note = ttk.Label(frame_creds, text="", font=("Arial", 8, "italic"), foreground="orange")
+        self.lbl_sandbox_note.grid(row=3, column=1, sticky="w", pady=2)
+
         # Load defaults
         config = self.context.get("config", {})
         if config.get("api_key"): self.entry_key.insert(0, config["api_key"])
@@ -74,10 +77,19 @@ class LoginTab(ttk.Frame):
     def _on_mode_change(self, *args):
         mode = self.mode_var.get()
         if mode == "SANDBOX":
-            self.entry_key.delete(0, tk.END)
-            self.entry_key.insert(0, "07dec88c-2500-4b35-a414-c8dee11c5026")
-            self.entry_secret.delete(0, tk.END)
-            self.entry_secret.insert(0, "6km8wtodx0")
+            # Just clear logic, user should enter their OWN sandbox credentials
+            # Or we can provide a default hint, but Upstox Sandbox apps are user-specific for Redirect URI
+
+            # Pre-fill a demo key if empty, but warn
+            self.lbl_sandbox_note.config(text="Note: Use credentials from your Sandbox App. Redirect URI must match exactly.")
+
+            # We DON'T hardcode keys anymore because the user's Sandbox App might have a different Redirect URI,
+            # and using our hardcoded keys with their Redirect URI setting would fail.
+            # However, if they want to use a 'public' sandbox app, that doesn't exist.
+
+            pass
+        else:
+            self.lbl_sandbox_note.config(text="")
 
     def on_login(self):
         mode = self.mode_var.get()

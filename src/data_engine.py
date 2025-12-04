@@ -106,7 +106,10 @@ class DataEngine:
 
             with self.lock:
                 self.fii_dii_data = formatted
-                logger.info(f"FII/DII Updated: FII {formatted['fii']}, DII {formatted['dii']}")
+                # Sanitize for logging (Windows CP1252 doesn't like ₹)
+                log_fii = formatted['fii'].replace('₹', 'Rs. ')
+                log_dii = formatted['dii'].replace('₹', 'Rs. ')
+                logger.info(f"FII/DII Updated: FII {log_fii}, DII {log_dii}")
 
         except Exception as e:
             logger.error(f"Failed to update FII/DII: {e}")
