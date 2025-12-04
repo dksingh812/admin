@@ -13,6 +13,8 @@ from src.backtest_engine import BacktestEngine
 from src.strategies.builder_strategy import BuilderStrategy
 from src.logger import logger
 from src.data_downloader import DataDownloader
+from src.ui.widgets import SearchableCombobox
+from src.instrument_manager import instrument_manager
 
 class BacktestTab(ttk.Frame):
     def __init__(self, parent, context):
@@ -36,8 +38,10 @@ class BacktestTab(ttk.Frame):
 
         # Symbol
         ttk.Label(f_cfg, text="Symbol:").pack(side=tk.LEFT, padx=10)
-        self.v_sym = tk.StringVar(value="^NSEI")
-        ttk.Entry(f_cfg, textvariable=self.v_sym, width=15).pack(side=tk.LEFT, padx=5)
+        # Replaced Entry with SearchableCombobox
+        self.cb_sym = SearchableCombobox(f_cfg, all_values=instrument_manager.get_all_symbols(), width=25)
+        self.cb_sym.pack(side=tk.LEFT, padx=5)
+        self.cb_sym.set("^NSEI")
 
         # Period/Interval
         ttk.Label(f_cfg, text="Period:").pack(side=tk.LEFT, padx=10)
@@ -88,8 +92,12 @@ class BacktestTab(ttk.Frame):
         self.cb_strat['values'] = names
         if names: self.cb_strat.current(0)
 
+        # Also update symbol list in case it loaded late
+        if instrument_manager.get_all_symbols():
+            self.cb_sym.set_values(instrument_manager.get_all_symbols())
+
     def download_data(self):
-        sym = self.v_sym.get()
+        sym = self.cb_sym.get()
         per = self.v_per.get()
         inv = self.v_int.get()
 
@@ -112,7 +120,7 @@ class BacktestTab(ttk.Frame):
             messagebox.showerror("Error", f"Failed to load strategy: {e}")
             return
 
-        sym = self.v_sym.get()
+        sym = self.cb_sym.get()
 
         self.cards["Total PnL"].config(text="Running...", foreground="black")
         self.update_idletasks()

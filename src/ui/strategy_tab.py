@@ -19,6 +19,11 @@ class StrategyCard(ttk.Frame):
         self.on_square_off = on_square_off
         self.pack(fill=tk.X, pady=5)
 
+        # Checkbox for bulk actions
+        self.var_sel = tk.BooleanVar()
+        self.chk_sel = ttk.Checkbutton(self, variable=self.var_sel, bootstyle="round-toggle")
+        self.chk_sel.pack(side=tk.LEFT, padx=5)
+
         lbl_name = ttk.Label(self, text=f"{strategy.target_symbol}\n{strategy.name}", font=("Helvetica", 10, "bold"))
         lbl_name.pack(side=tk.LEFT, padx=10)
 
@@ -46,6 +51,36 @@ class StrategyCard(ttk.Frame):
         self.strategy.stop()
         self.lbl_status.config(text="CLOSED", bootstyle="danger")
         self.on_square_off(self.strategy)
+
+class SavedStrategyRow(ttk.Frame):
+    def __init__(self, parent, config, filepath, on_deploy, on_edit):
+        super().__init__(parent, bootstyle="light", padding=5)
+        self.config = config
+        self.filepath = filepath
+        self.on_deploy = on_deploy
+        self.on_edit = on_edit
+        self.pack(fill=tk.X, pady=2, padx=5)
+
+        self.var_sel = tk.BooleanVar()
+        ttk.Checkbutton(self, variable=self.var_sel).pack(side=tk.LEFT, padx=5)
+
+        # Deploy Toggle
+        ttk.Checkbutton(self, text="Deploy", bootstyle="success-round-toggle", command=self.deploy_action).pack(side=tk.LEFT, padx=10)
+
+        # Edit Button
+        ttk.Button(self, text="Edit", bootstyle="info-outline", command=self.edit_action, width=6).pack(side=tk.LEFT, padx=5)
+
+        # Name (No .json)
+        name = os.path.basename(filepath).replace(".json", "")
+        desc = config.get("description", "")
+        if desc: name += f" ({desc[:30]}...)"
+        ttk.Label(self, text=name, font=("Arial", 10)).pack(side=tk.LEFT, padx=10)
+
+    def deploy_action(self):
+        self.on_deploy(self.config)
+
+    def edit_action(self):
+        self.on_edit(self.filepath)
 
 class StrategyTab(ttk.Frame):
     def __init__(self, parent, context):
@@ -76,9 +111,15 @@ class StrategyTab(ttk.Frame):
         self.refresh_saved_strategies()
 
     def _init_deployed_tab(self):
+        f_top = ttk.Frame(self.tab_deployed)
+        f_top.pack(fill=tk.X, pady=5)
+        ttk.Button(f_top, text="Stop Selected", bootstyle="warning", command=self.stop_selected_deployed).pack(side=tk.LEFT, padx=5)
+        ttk.Button(f_top, text="Square Off Selected", bootstyle="danger", command=self.sqoff_selected_deployed).pack(side=tk.LEFT, padx=5)
+
         canvas = tk.Canvas(self.tab_deployed, highlightthickness=0)
         scrollbar = ttk.Scrollbar(self.tab_deployed, orient="vertical", command=canvas.yview)
         self.card_list = ttk.Frame(canvas)
+        self.deployed_cards = []
 
         self.card_list.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
         canvas.create_window((0, 0), window=self.card_list, anchor="nw", width=1100)
@@ -92,16 +133,20 @@ class StrategyTab(ttk.Frame):
         f_toolbar.pack(fill=tk.X)
 
         ttk.Button(f_toolbar, text="Refresh List", bootstyle="info-outline", command=self.refresh_saved_strategies).pack(side=tk.LEFT, padx=5)
-        ttk.Button(f_toolbar, text="Delete Selected", bootstyle="danger", command=self.delete_selected_strategy).pack(side=tk.RIGHT, padx=5)
-        ttk.Button(f_toolbar, text="Load into Creator", bootstyle="primary", command=self.load_selected_strategy).pack(side=tk.RIGHT, padx=5)
+        ttk.Button(f_toolbar, text="Delete Selected", bootstyle="danger", command=self.delete_selected_saved).pack(side=tk.RIGHT, padx=5)
 
-        cols = ("Name", "Target Symbol", "Legs Count")
-        self.tree_saved = ttk.Treeview(self.tab_saved, columns=cols, show="headings")
-        for c in cols:
-            self.tree_saved.heading(c, text=c)
-            self.tree_saved.column(c, width=150)
+        # Scrollable area for rows
+        canvas = tk.Canvas(self.tab_saved, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(self.tab_saved, orient="vertical", command=canvas.yview)
+        self.saved_list_frame = ttk.Frame(canvas)
+        self.saved_rows = []
 
-        self.tree_saved.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        self.saved_list_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=self.saved_list_frame, anchor="nw", width=1100)
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
 
     def _init_create_tab(self):
         main_scroll = ttk.Frame(self.tab_create)
@@ -285,33 +330,41 @@ class StrategyTab(ttk.Frame):
             messagebox.showerror("Error", f"Failed to save: {e}")
 
     def refresh_saved_strategies(self):
-        self.tree_saved.delete(*self.tree_saved.get_children())
+        # Clear existing
+        for w in self.saved_list_frame.winfo_children(): w.destroy()
+        self.saved_rows = []
+
         files = glob.glob(os.path.join(STRATEGY_DIR, "*.json"))
         for f in files:
             try:
                 with open(f, "r") as file:
-                    data = json.load(file)
-                    name = data.get("name", "Unknown")
-                    sym = data.get("target_symbol", "Unknown")
-                    legs_count = len(data.get("legs", []))
-                    self.tree_saved.insert("", "end", values=(name, sym, legs_count), tags=(f,))
+                    config = json.load(file)
+
+                row = SavedStrategyRow(self.saved_list_frame, config, f, self.deploy_from_config, self.load_for_edit)
+                self.saved_rows.append(row)
             except Exception as e:
                 logger.error(f"Error loading {f}: {e}")
 
-    def delete_selected_strategy(self):
-        sel = self.tree_saved.selection()
-        if not sel: return
+    def delete_selected_saved(self):
+        to_delete = [r for r in self.saved_rows if r.var_sel.get()]
+        if not to_delete: return
 
-        path = self.tree_saved.item(sel[0], "tags")[0]
-        if messagebox.askyesno("Confirm", f"Delete {path}?"):
-            os.remove(path)
+        if messagebox.askyesno("Confirm", f"Delete {len(to_delete)} strategies?"):
+            for r in to_delete:
+                try: os.remove(r.filepath)
+                except: pass
             self.refresh_saved_strategies()
 
-    def load_selected_strategy(self):
-        sel = self.tree_saved.selection()
-        if not sel: return
+    def deploy_from_config(self, config):
+        broker = self.context.get('broker')
+        strategy = BuilderStrategy(broker, config)
+        strategy.set_symbol(config["target_symbol"])
+        strategy.start()
 
-        path = self.tree_saved.item(sel[0], "tags")[0]
+        self.add_strategy_card(strategy)
+        self.notebook.select(self.tab_deployed)
+
+    def load_for_edit(self, path):
         try:
             with open(path, "r") as f:
                 config = json.load(f)
@@ -335,9 +388,7 @@ class StrategyTab(ttk.Frame):
 
             # Restore Legs
             for leg in config.get("legs", []):
-                # Legacy tuple check
                 if isinstance(leg, list) or isinstance(leg, tuple):
-                    # type, strike, action, qty, tgt, tgt_u, sl, sl_u, trail, trail_u...
                     self.tree_legs.insert("", "end", values=(leg[0], leg[1], leg[2], leg[3], leg[4], leg[6], leg[8]))
 
             self.notebook.select(self.tab_create)
@@ -348,13 +399,7 @@ class StrategyTab(ttk.Frame):
 
     def deploy_live(self):
         config = self._get_config_from_ui()
-        broker = self.context.get('broker')
-        strategy = BuilderStrategy(broker, config)
-        strategy.set_symbol(config["target_symbol"])
-        strategy.start()
-
-        self.add_strategy_card(strategy)
-        self.notebook.select(self.tab_deployed)
+        self.deploy_from_config(config)
 
     def add_strategy_card(self, strategy):
         if 'strategies' not in self.context: self.context['strategies'] = []
@@ -365,6 +410,18 @@ class StrategyTab(ttk.Frame):
             self.context['data_engine'].subscribe([strategy.target_symbol])
 
         card = StrategyCard(self.card_list, strategy, lambda: None, self.square_off_strategy)
+        self.deployed_cards.append(card)
 
     def square_off_strategy(self, strategy):
         pass
+
+    def stop_selected_deployed(self):
+        for card in self.deployed_cards:
+            if card.var_sel.get():
+                card.strategy.stop()
+                card.lbl_status.config(text="STOPPED", bootstyle="secondary")
+
+    def sqoff_selected_deployed(self):
+        for card in self.deployed_cards:
+            if card.var_sel.get():
+                card.square_off()
