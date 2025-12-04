@@ -9,197 +9,205 @@ class OrdersTab(ttk.Frame):
         self.context = context
         self.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-        # Split into Open and Closed
-        self.notebook = ttk.Notebook(self)
-        self.notebook.pack(fill=tk.BOTH, expand=True)
+        # Split Layout: Top (Positions) / Bottom (Orders)
+        self.paned = ttk.PanedWindow(self, orient=tk.VERTICAL)
+        self.paned.pack(fill=tk.BOTH, expand=True)
 
-        # Tab 1: Live Positions
-        self.tab_open = ttk.Frame(self.notebook)
-        self.notebook.add(self.tab_open, text="Live Positions")
-        self._init_open_tab()
+        # 1. Top Pane: Positions
+        self.f_pos = ttk.Labelframe(self.paned, text="Net Positions", padding=5)
+        self.paned.add(self.f_pos, weight=1)
 
-        # Tab 2: Closed History
-        self.tab_closed = ttk.Frame(self.notebook)
-        self.notebook.add(self.tab_closed, text="Closed Positions")
-        self._init_closed_tab()
+        self._init_positions_table()
 
-        # Auto refresh
+        # 2. Bottom Pane: Orders (Open / Closed)
+        self.f_orders = ttk.Labelframe(self.paned, text="Order Book", padding=5)
+        self.paned.add(self.f_orders, weight=1)
+
+        self._init_orders_table()
+
+        # Auto refresh loop
         self.refresh_loop()
 
-    def _init_open_tab(self):
+    def _init_positions_table(self):
         # Columns
-        # Instrument | Qty | Entry | LTP | PnL | Target | SL | Trailed SL | Time
-        cols = ("inst", "qty", "entry", "ltp", "pnl", "tgt", "sl", "tsl", "time")
-        self.tree_open = ttk.Treeview(self.tab_open, columns=cols, show="headings", bootstyle="info", height=15)
+        cols = ("inst", "qty", "entry", "ltp", "pnl", "tgt", "sl", "tsl")
+        self.tree_pos = ttk.Treeview(self.f_pos, columns=cols, show="headings", bootstyle="info", height=8)
 
         headers = {
-            "inst": "Instrument", "qty": "Qty", "entry": "Avg Price",
+            "inst": "Instrument", "qty": "Net Qty", "entry": "Avg Price",
             "ltp": "LTP", "pnl": "PnL", "tgt": "Target",
-            "sl": "Stop Loss", "tsl": "Trailed SL", "time": "Entry Time"
+            "sl": "Stop Loss", "tsl": "Trailed SL"
         }
 
         for k, v in headers.items():
-            self.tree_open.heading(k, text=v)
+            self.tree_pos.heading(k, text=v)
             width = 150 if k == "inst" else 80
-            self.tree_open.column(k, width=width, anchor="center")
+            self.tree_pos.column(k, width=width, anchor="center")
 
-        self.tree_open.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        scrollbar = ttk.Scrollbar(self.f_pos, orient="vertical", command=self.tree_pos.yview)
+        self.tree_pos.configure(yscrollcommand=scrollbar.set)
 
-        # Controls
-        btn_frame = ttk.Frame(self.tab_open)
-        btn_frame.pack(fill=tk.X, pady=5)
+        self.tree_pos.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
 
-        ttk.Button(btn_frame, text="EXIT SELECTED", command=self.exit_selected, bootstyle="warning").pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_frame, text="EXIT ALL POSITIONS", command=self.exit_all, bootstyle="danger").pack(side=tk.RIGHT, padx=5)
+        # Controls (Bottom of Positions)
+        btn_frame = ttk.Frame(self.f_pos)
+        btn_frame.pack(side="bottom", fill="x", pady=5)
 
-    def _init_closed_tab(self):
-        cols = ("inst", "qty", "entry", "exit", "pnl", "exit_time")
-        self.tree_closed = ttk.Treeview(self.tab_closed, columns=cols, show="headings", height=15)
+        ttk.Button(btn_frame, text="EXIT SELECTED", command=self.exit_selected_pos, bootstyle="warning").pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="EXIT ALL", command=self.exit_all_pos, bootstyle="danger").pack(side=tk.RIGHT, padx=5)
 
-        self.tree_closed.heading("inst", text="Instrument")
-        self.tree_closed.heading("qty", text="Qty")
-        self.tree_closed.heading("entry", text="Entry Price")
-        self.tree_closed.heading("exit", text="Exit Price")
-        self.tree_closed.heading("pnl", text="Realized PnL")
-        self.tree_closed.heading("exit_time", text="Exit Time")
+    def _init_orders_table(self):
+        # Filter Tabs (Open / All)
+        self.nb_orders = ttk.Notebook(self.f_orders)
+        self.nb_orders.pack(fill=tk.BOTH, expand=True)
 
-        self.tree_closed.pack(fill=tk.BOTH, expand=True)
+        # Open Orders Tab
+        self.tab_open_ord = ttk.Frame(self.nb_orders)
+        self.nb_orders.add(self.tab_open_ord, text="Open / Pending")
+
+        # All Orders Tab
+        self.tab_all_ord = ttk.Frame(self.nb_orders)
+        self.nb_orders.add(self.tab_all_ord, text="Order History")
+
+        # Setup Tree for Open
+        cols = ("id", "time", "inst", "type", "qty", "price", "status")
+        self.tree_open_ord = ttk.Treeview(self.tab_open_ord, columns=cols, show="headings", height=8)
+
+        for c in cols:
+            self.tree_open_ord.heading(c, text=c.upper())
+            self.tree_open_ord.column(c, width=80, anchor="center")
+        self.tree_open_ord.column("inst", width=120)
+        self.tree_open_ord.pack(fill=tk.BOTH, expand=True)
+
+        # Setup Tree for All
+        self.tree_all_ord = ttk.Treeview(self.tab_all_ord, columns=cols, show="headings", height=8)
+        for c in cols:
+            self.tree_all_ord.heading(c, text=c.upper())
+            self.tree_all_ord.column(c, width=80, anchor="center")
+        self.tree_all_ord.column("inst", width=120)
+        self.tree_all_ord.pack(fill=tk.BOTH, expand=True)
+
+        # Cancel Button for Open Orders
+        ttk.Button(self.tab_open_ord, text="Cancel Selected", command=self.cancel_selected_order, bootstyle="danger-outline").pack(pady=5)
 
     def refresh_loop(self):
-        self.update_live_positions()
-        self.update_closed_positions()
+        self.update_positions()
+        self.update_orders()
         self.after(1000, self.refresh_loop)
 
-    def update_live_positions(self):
-        # Clear current
-        for i in self.tree_open.get_children():
-            self.tree_open.delete(i)
-
-        # We need a unified view of positions.
-        # The 'RiskEngine' or 'Strategy' tracks logical stops (SL/Target).
-        # The 'Broker' tracks actual exchange positions.
-        # We try to merge them.
+    def update_positions(self):
+        # 1. Clear
+        for i in self.tree_pos.get_children(): self.tree_pos.delete(i)
 
         broker = self.context.get('broker')
         strategies = self.context.get('strategies', [])
 
-        # 1. Gather Broker Positions (Base Truth)
+        # 2. Get Broker Pos
         broker_positions = {}
-        if broker and broker.connected:
+        if broker and getattr(broker, 'connected', False):
             try:
-                raw_pos = broker.get_positions()
-                for p in raw_pos:
+                raw = broker.get_positions()
+                for p in raw:
                     sym = getattr(p, 'tradingsymbol', 'Unknown')
                     qty = getattr(p, 'quantity', 0)
                     if qty != 0:
                         broker_positions[sym] = {
                             "qty": qty,
                             "avg": getattr(p, 'average_price', 0.0),
-                            "ltp": getattr(p, 'last_price', 0.0),
-                            "pnl": getattr(p, 'pnl', 0.0)
+                            "ltp": getattr(p, 'last_price', 0.0)
                         }
             except: pass
 
-        # 2. Gather Strategy Logical Info (SL/Target)
-        strategy_info = {}
+        # 3. Get Strategy Logical Info
+        strat_info = {}
         for s in strategies:
             for p in s.active_positions:
                 if p['status'] == 'OPEN':
-                    strategy_info[p['symbol']] = {
-                        "sl": p.get('sl', 0.0),
-                        "tgt": p.get('tgt', 0.0),
-                        "tsl": p.get('sl', 0.0), # Assuming TSL updates the SL field
-                        "time": "00:00" # TODO: Store entry time
+                    strat_info[p['symbol']] = {
+                        "sl": p.get('sl'), "tgt": p.get('tgt'), "tsl": p.get('sl') # TSL modifies SL usually
                     }
 
-        # 3. Merge and Display
-        # Display everything from Broker (Real)
+        # 4. Render
         for sym, data in broker_positions.items():
             qty = data['qty']
             avg = data['avg']
             ltp = data['ltp']
             pnl = (ltp - avg) * qty
 
-            # Enrich with strategy info
-            info = strategy_info.get(sym, {})
+            info = strat_info.get(sym, {})
             sl = info.get('sl', '-')
             tgt = info.get('tgt', '-')
-            tsl = info.get('tsl', '-')
-            time_str = info.get('time', '-')
+            tsl = info.get('tsl', '-') # Simplification
 
-            # Formatting
-            sl_str = f"{sl:.2f}" if isinstance(sl, float) else sl
-            tgt_str = f"{tgt:.2f}" if isinstance(tgt, float) else tgt
-            tsl_str = f"{tsl:.2f}" if isinstance(tsl, float) else tsl
+            sl_s = f"{sl:.2f}" if isinstance(sl, float) else sl
+            tgt_s = f"{tgt:.2f}" if isinstance(tgt, float) else tgt
+            tsl_s = f"{tsl:.2f}" if isinstance(tsl, float) else tsl
 
-            # Color PnL
             tags = ("profit",) if pnl >= 0 else ("loss",)
-
-            self.tree_open.insert("", "end", values=(
-                sym, qty, f"{avg:.2f}", f"{ltp:.2f}", f"{pnl:.2f}",
-                tgt_str, sl_str, tsl_str, time_str
+            self.tree_pos.insert("", "end", values=(
+                sym, qty, f"{avg:.2f}", f"{ltp:.2f}", f"{pnl:.2f}", tgt_s, sl_s, tsl_s
             ), tags=tags)
 
-        self.tree_open.tag_configure("profit", foreground="green")
-        self.tree_open.tag_configure("loss", foreground="red")
+        self.tree_pos.tag_configure("profit", foreground="#00bc8c") # Success color
+        self.tree_pos.tag_configure("loss", foreground="#e74c3c")   # Danger color
 
-    def update_closed_positions(self):
-        # This usually comes from a "TradeBook" or internal log
-        # For V1, we can check if strategies store closed trades history
-        # Or Broker.get_trades()
-
-        # Avoid full redraw every second to prevent flicker?
-        # Only redraw if count changes?
-        # For simplicity V1: Redraw.
-
-        for i in self.tree_closed.get_children():
-            self.tree_closed.delete(i)
+    def update_orders(self):
+        # Clear
+        for i in self.tree_open_ord.get_children(): self.tree_open_ord.delete(i)
+        for i in self.tree_all_ord.get_children(): self.tree_all_ord.delete(i)
 
         broker = self.context.get('broker')
-        if broker and hasattr(broker, 'trades'):
-            # Assuming broker.trades is a list of completed trade dicts
-            # We need to aggregate buys/sells to show "Closed Position PnL"
-            # This is complex. For now, let's just list Strategy Closed positions if available.
-            pass
+        if not broker or not getattr(broker, 'connected', False): return
 
-        # Strategy Internal History fallback
-        strategies = self.context.get('strategies', [])
-        for s in strategies:
-            # If strategy has a 'closed_positions' list
-            if hasattr(s, 'active_positions'):
-                for p in s.active_positions:
-                    if p['status'] == 'CLOSED':
-                        # Calculate PnL
-                        entry = p['entry']
-                        exit_p = p.get('exit_price', 0.0) # Need to record this
-                        qty = p['qty']
-                        mult = 1 if p['side'] == 'BUY' else -1
-                        pnl = (exit_p - entry) * qty * mult if exit_p > 0 else 0.0
+        try:
+            orders = broker.get_orders() # List of order objects
+            # Reverse to show newest first
+            for o in reversed(orders):
+                oid = getattr(o, 'order_id', '-')
+                otime = getattr(o, 'order_timestamp', '-')
+                osym = getattr(o, 'tradingsymbol', '-')
+                otype = getattr(o, 'transaction_type', '-')
+                oqty = getattr(o, 'quantity', 0)
+                oprice = getattr(o, 'price', 0.0)
+                ostatus = getattr(o, 'status', 'UNKNOWN')
 
-                        self.tree_closed.insert("", "end", values=(
-                            p['symbol'], qty, f"{entry:.2f}", f"{exit_p:.2f}",
-                            f"{pnl:.2f}", "Today"
-                        ))
+                vals = (oid, otime, osym, otype, oqty, oprice, ostatus)
 
-    def exit_selected(self):
-        sel = self.tree_open.selection()
+                # Add to All
+                self.tree_all_ord.insert("", "end", values=vals)
+
+                # Add to Open if active
+                if ostatus in ["open", "trigger pending", "validation pending"]:
+                    self.tree_open_ord.insert("", "end", values=vals)
+
+        except: pass
+
+    def exit_selected_pos(self):
+        sel = self.tree_pos.selection()
         broker = self.context.get('broker')
         if not broker: return
-
         for item in sel:
-            vals = self.tree_open.item(item)['values']
-            symbol = vals[0]
-            qty = int(vals[1])
+            vals = self.tree_pos.item(item)['values']
+            sym, qty = vals[0], int(vals[1])
             side = "SELL" if qty > 0 else "BUY"
-            broker.place_order(symbol, abs(qty), side)
+            broker.place_order(sym, abs(qty), side)
 
-    def exit_all(self):
+    def exit_all_pos(self):
+        # Panic Logic already exists in RiskEngine/HomeTab, duplicating simpler version here
         broker = self.context.get('broker')
         if not broker: return
-
-        for item in self.tree_open.get_children():
-            vals = self.tree_open.item(item)['values']
-            symbol = vals[0]
-            qty = int(vals[1])
+        for item in self.tree_pos.get_children():
+            vals = self.tree_pos.item(item)['values']
+            sym, qty = vals[0], int(vals[1])
             side = "SELL" if qty > 0 else "BUY"
-            broker.place_order(symbol, abs(qty), side)
+            broker.place_order(sym, abs(qty), side)
+
+    def cancel_selected_order(self):
+        sel = self.tree_open_ord.selection()
+        broker = self.context.get('broker')
+        if not broker: return
+        for item in sel:
+            oid = self.tree_open_ord.item(item)['values'][0]
+            # broker.cancel_order(oid) # Assuming method exists
+            pass

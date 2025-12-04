@@ -5,6 +5,7 @@ import shutil
 import pandas as pd
 import threading
 import datetime
+import os
 from src.config import DATA_DIR
 from src.logger import logger
 from src.default_symbols import DEFAULT_SYMBOLS
@@ -14,7 +15,8 @@ INSTRUMENT_FILE = DATA_DIR / "complete_instrument_list.csv"
 class InstrumentManager:
     def __init__(self):
         self.df = None
-        self.symbol_list = []
+        # Initialize with DEFAULT_SYMBOLS immediately so UI is never empty
+        self.symbol_list = DEFAULT_SYMBOLS[:]
         self.loading = False
         self.loader_thread = threading.Thread(target=self.load_instruments, daemon=True)
         self.loader_thread.start()
@@ -60,23 +62,27 @@ class InstrumentManager:
 
     def load_instruments(self):
         self.loading = True
+
+        # Check if file exists, if not or old, download
         if not INSTRUMENT_FILE.exists():
             self.download_instruments()
 
         try:
-            self.df = pd.read_csv(INSTRUMENT_FILE)
-            # Ensure columns are normalized
-            # Upstox CSV usually: instrument_key, exchange_token, tradingsymbol, name, last_price, expiry, strike, instrument_type, underlying_symbol...
-            # We map them to standard if possible or just use what's there
-            if 'tradingsymbol' in self.df.columns:
-                self.symbol_list = self.df['tradingsymbol'].dropna().astype(str).tolist()
-                self.symbol_list.sort()
-        except:
-            self.symbol_list = []
+            if INSTRUMENT_FILE.exists():
+                self.df = pd.read_csv(INSTRUMENT_FILE)
+                # Ensure columns are normalized
+                if 'tradingsymbol' in self.df.columns:
+                    loaded_symbols = self.df['tradingsymbol'].dropna().astype(str).tolist()
+                    loaded_symbols.sort()
+                    # Update symbol list with downloaded data
+                    if loaded_symbols:
+                        self.symbol_list = loaded_symbols
+        except Exception as e:
+            logger.error(f"Failed to load instrument list: {e}")
+            # Keep defaults
 
-        if not self.symbol_list:
-            self.symbol_list = DEFAULT_SYMBOLS
         self.loading = False
+        logger.info(f"Instrument Manager Loaded {len(self.symbol_list)} symbols.")
 
     def get_instrument_key(self, symbol):
         if self.df is None: return None
@@ -91,18 +97,12 @@ class InstrumentManager:
         """
         Finds the nearest weekly expiry option for the given underlying, strike, and type.
         """
-        if self.df is None: return None
-
-        # 1. Filter by Underlying (e.g. 'NIFTY') - check 'name' or 'underlying_symbol'
-        # Since CSV structure varies, we assume 'tradingsymbol' starts with Underlying
-        # Example: NIFTY23DEC21000CE
-
-        # Strategy: Filter tradingsymbol containing Underlying AND Strike AND Type
-        # This is a heuristic.
-
-        # Optimization: We should parse expiry dates, but for V1 we find *any* matching symbol
-        # Ideally the one with shortest string length (often near expiry)?
-        # Or sort by alphabetic (expiry date is encoded).
+        if self.df is None:
+            # Fallback for when data isn't loaded yet
+            # Return a constructed string which is likely correct for major indices
+            # e.g. BANKNIFTY23DEC48000CE (Format requires exact date logic which is hard to guess)
+            # Instead return generic string that broker might accept or user has to fix
+            return f"{underlying} {strike} {opt_type}"
 
         try:
             # Mask
@@ -115,11 +115,10 @@ class InstrumentManager:
 
             if not candidates.empty:
                 # Return the first one.
-                # Improvement: Sort by expiry if column exists.
                 return candidates.iloc[0]['tradingsymbol']
         except Exception as e:
             logger.error(f"Error finding option: {e}")
 
-        return None
+        return f"{underlying} {strike} {opt_type}"
 
 instrument_manager = InstrumentManager()
