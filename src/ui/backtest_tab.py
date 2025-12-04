@@ -12,6 +12,7 @@ import json
 from src.backtest_engine import BacktestEngine
 from src.strategies.builder_strategy import BuilderStrategy
 from src.logger import logger
+from src.data_downloader import DataDownloader
 
 class BacktestTab(ttk.Frame):
     def __init__(self, parent, context):
@@ -20,6 +21,7 @@ class BacktestTab(ttk.Frame):
         self.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
 
         self.engine = BacktestEngine()
+        self.downloader = DataDownloader(self.context.get('broker'))
 
         # --- Top: Config ---
         f_cfg = ttk.Labelframe(self, text="Backtest Configuration", padding=10)
@@ -47,17 +49,17 @@ class BacktestTab(ttk.Frame):
         ttk.Combobox(f_cfg, textvariable=self.v_int, values=["5m", "15m", "1h", "1d"], width=5, state="readonly").pack(side=tk.LEFT)
 
         ttk.Button(f_cfg, text="Run Backtest", bootstyle="success", command=self.run_backtest).pack(side=tk.LEFT, padx=20)
-        ttk.Button(f_cfg, text="Refresh Strategies", bootstyle="info-outline", command=self.refresh_strategies).pack(side=tk.LEFT, padx=5)
+        ttk.Button(f_cfg, text="Download Data", bootstyle="info-outline", command=self.download_data).pack(side=tk.LEFT, padx=5)
+        ttk.Button(f_cfg, text="Refresh Strategies", bootstyle="secondary-outline", command=self.refresh_strategies).pack(side=tk.LEFT, padx=5)
 
         # --- Dashboard ---
         self.dash_scroll = ttk.Frame(self)
         self.dash_scroll.pack(fill=tk.BOTH, expand=True)
 
-        # Use a canvas for scrolling if needed, but for now just frames
+        # Summary Cards
         self.f_summary = ttk.Frame(self.dash_scroll)
         self.f_summary.pack(fill=tk.X, pady=10)
 
-        # Summary Cards
         self.cards = {}
         card_keys = ["Total Trades", "Win Rate", "Profit Factor", "Max Drawdown", "Total PnL", "Avg Trade"]
         for i, key in enumerate(card_keys):
@@ -76,7 +78,7 @@ class BacktestTab(ttk.Frame):
         self.f_equity = ttk.Frame(self.f_charts)
         self.f_equity.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
 
-        # Right: Daywise Heatmap (Simulated via Matplotlib Grid)
+        # Right: Daywise Heatmap
         self.f_heatmap = ttk.Frame(self.f_charts)
         self.f_heatmap.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=5)
 
@@ -85,6 +87,17 @@ class BacktestTab(ttk.Frame):
         names = [os.path.basename(f) for f in files]
         self.cb_strat['values'] = names
         if names: self.cb_strat.current(0)
+
+    def download_data(self):
+        sym = self.v_sym.get()
+        per = self.v_per.get()
+        inv = self.v_int.get()
+
+        success, msg = self.downloader.fetch_and_store(sym, per, inv)
+        if success:
+            messagebox.showinfo("Success", msg)
+        else:
+            messagebox.showerror("Error", msg)
 
     def run_backtest(self):
         strat_file = self.v_strat.get()
@@ -100,16 +113,20 @@ class BacktestTab(ttk.Frame):
             return
 
         sym = self.v_sym.get()
-        per = self.v_per.get()
-        inv = self.v_int.get()
 
         self.cards["Total PnL"].config(text="Running...", foreground="black")
         self.update_idletasks()
 
-        # Run
-        df = self.engine.download_data(sym, per, inv)
+        # Try load local first
+        df = self.downloader.load_data(sym)
+        if df is None:
+            # Fallback download
+            self.download_data()
+            df = self.downloader.load_data(sym)
+
         if df is None or df.empty:
-            messagebox.showerror("Error", "No data found.")
+            messagebox.showerror("Error", "No data found. Try downloading first.")
+            self.cards["Total PnL"].config(text="-")
             return
 
         results = self.engine.run(BuilderStrategy, config, sym, df)
@@ -133,18 +150,26 @@ class BacktestTab(ttk.Frame):
         # Plot Equity Curve
         self._plot_equity(results["equity_curve"])
 
-        # Plot Heatmap (or Monthly Bar Chart)
+        # Plot Heatmap
         self._plot_daywise(results["day_pnl"])
 
     def _plot_equity(self, data):
         for widget in self.f_equity.winfo_children(): widget.destroy()
 
+        # Important: Pass the frame size or ensure figure fits
         fig = Figure(figsize=(5, 4), dpi=100)
         ax = fig.add_subplot(111)
-        ax.plot(data["equity"], color="blue", linewidth=1)
-        ax.fill_between(range(len(data["equity"])), data["equity"], alpha=0.1, color="blue")
-        ax.set_title("Equity Curve")
-        ax.grid(True, alpha=0.3)
+
+        # Ensure data exists
+        if not data["equity"]:
+            ax.text(0.5, 0.5, "No Trades", ha="center")
+        else:
+            ax.plot(data["equity"], color="#007bff", linewidth=1.5)
+            ax.fill_between(range(len(data["equity"])), data["equity"], alpha=0.1, color="#007bff")
+
+        ax.set_title("Equity Curve", fontsize=10)
+        ax.grid(True, alpha=0.3, linestyle="--")
+        fig.tight_layout()
 
         canvas = FigureCanvasTkAgg(fig, master=self.f_equity)
         canvas.draw()
@@ -153,23 +178,25 @@ class BacktestTab(ttk.Frame):
     def _plot_daywise(self, day_pnl):
         for widget in self.f_heatmap.winfo_children(): widget.destroy()
 
-        if not day_pnl: return
-
-        dates = list(day_pnl.keys())
-        pnls = list(day_pnl.values())
-
-        colors = ['green' if p > 0 else 'red' for p in pnls]
-
         fig = Figure(figsize=(5, 4), dpi=100)
         ax = fig.add_subplot(111)
-        ax.bar(dates, pnls, color=colors)
-        ax.set_title("Daily PnL Breakdown")
-        ax.tick_params(axis='x', rotation=45, labelsize=8)
-        ax.grid(axis='y', alpha=0.3)
 
-        # If too many dates, simplify x-axis
-        if len(dates) > 10:
-            ax.set_xticks(range(0, len(dates), len(dates)//10))
+        if not day_pnl:
+             ax.text(0.5, 0.5, "No Data", ha="center")
+        else:
+            dates = list(day_pnl.keys())
+            pnls = list(day_pnl.values())
+            colors = ['#28a745' if p > 0 else '#dc3545' for p in pnls]
+
+            ax.bar(dates, pnls, color=colors)
+            ax.set_title("Daily PnL Breakdown", fontsize=10)
+
+            # Reduce ticks
+            if len(dates) > 8:
+                ax.set_xticks(range(0, len(dates), len(dates)//8))
+
+            ax.tick_params(axis='x', rotation=30, labelsize=8)
+            ax.grid(axis='y', alpha=0.3, linestyle="--")
 
         fig.tight_layout()
 

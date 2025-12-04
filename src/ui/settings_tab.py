@@ -9,18 +9,29 @@ class SettingsTab(ttk.Frame):
         self.context = context
         self.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
 
-        ttk.Label(self, text="Application Settings", font=("Helvetica", 14, "bold")).pack(pady=10)
+        ttk.Label(self, text="Application Settings", font=("Helvetica", 16, "bold")).pack(pady=10)
 
         # --- Appearance ---
         frame_app = ttk.LabelFrame(self, text="Appearance", padding=15)
         frame_app.pack(fill=tk.X, pady=10)
 
+        # Theme
         ttk.Label(frame_app, text="Theme:").grid(row=0, column=0, padx=10, pady=10, sticky="e")
         self.themes = tb.Style().theme_names()
-        self.v_theme = tk.StringVar(value=self.context['config'].get('theme', 'flatly'))
+        self.v_theme = tk.StringVar(value=self.context['config'].get('theme', 'darkly'))
         self.cb_theme = ttk.Combobox(frame_app, textvariable=self.v_theme, values=self.themes, state="readonly", width=20)
         self.cb_theme.grid(row=0, column=1, padx=10, pady=10, sticky="w")
         self.cb_theme.bind("<<ComboboxSelected>>", self.change_theme)
+
+        ttk.Label(frame_app, text="(Recommended Dark: darkly, cyborg, superhero)", font=("Arial", 8), foreground="grey").grid(row=0, column=2, padx=5, sticky="w")
+
+        # Font Scale
+        ttk.Label(frame_app, text="Font Scaling:").grid(row=1, column=0, padx=10, pady=10, sticky="e")
+        self.v_scale = tk.StringVar(value=self.context['config'].get('font_scale', '1.0'))
+        self.cb_scale = ttk.Combobox(frame_app, textvariable=self.v_scale, values=["0.8", "1.0", "1.2", "1.5", "2.0"], state="readonly", width=10)
+        self.cb_scale.grid(row=1, column=1, padx=10, pady=10, sticky="w")
+
+        ttk.Label(frame_app, text="(Requires Restart)", font=("Arial", 8), foreground="orange").grid(row=1, column=2, padx=5, sticky="w")
 
         # --- Network & API ---
         frame_net = ttk.LabelFrame(self, text="Network & API", padding=15)
@@ -43,9 +54,11 @@ class SettingsTab(ttk.Frame):
     def save_settings(self):
         uri = self.entry_uri.get()
         theme = self.v_theme.get()
+        scale = self.v_scale.get()
 
         self.context['config']['redirect_uri'] = uri
         self.context['config']['theme'] = theme
+        self.context['config']['font_scale'] = scale
 
         save_config(self.context['config'])
-        messagebox.showinfo("Success", "Settings saved successfully.")
+        messagebox.showinfo("Success", "Settings saved successfully.\nRestart app to apply scaling changes.")
