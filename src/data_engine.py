@@ -10,7 +10,7 @@ class DataEngine:
         self.broker = broker
         self.strategies = strategies if strategies else []
         self.subscribed_symbols = []
-        self.latest_data = {} # {symbol: {ltp: x, change: y, pct: z}}
+        self.latest_data = {} # {symbol: {ltp: x, change: y, pct: z, oi: w, close: c, initial_oi: i}}
         self.fii_dii_data = {} # Store FII/DII data
         self.running = False
         self.thread = None
@@ -31,7 +31,11 @@ class DataEngine:
             self.subscribed_symbols = list(set(self.subscribed_symbols + symbols))
             for s in symbols:
                 if s not in self.latest_data:
-                    self.latest_data[s] = {"ltp": 0.0, "change": 0.0, "pct_change": 0.0, "symbol": s}
+                    # Initialize with 0s
+                    self.latest_data[s] = {
+                        "ltp": 0.0, "change": 0.0, "pct_change": 0.0,
+                        "oi": 0.0, "close": 0.0, "initial_oi": 0.0, "symbol": s
+                    }
 
     def start(self):
         if self.running:
@@ -60,18 +64,28 @@ class DataEngine:
                 current_symbols = self.subscribed_symbols[:]
 
             for symbol in current_symbols:
-                # Returns dict {ltp, change, pct_change}
+                # Returns dict {ltp, change, pct_change, oi, close}
                 quote = self.broker.get_ltp(symbol)
 
-                # Check for float fallback
+                # Check for float fallback (should be rare with UpstoxBroker update)
                 if isinstance(quote, float):
-                    quote = {"ltp": quote, "change": 0.0, "pct_change": 0.0}
+                    quote = {"ltp": quote, "change": 0.0, "pct_change": 0.0, "oi": 0.0, "close": 0.0}
+
+                # Preserve initial OI if set
+                initial_oi = 0.0
+                if symbol in self.latest_data and self.latest_data[symbol].get("initial_oi"):
+                    initial_oi = self.latest_data[symbol]["initial_oi"]
+                elif quote.get("oi", 0) > 0:
+                    initial_oi = quote["oi"]
 
                 tick_data = {
                     "symbol": symbol,
                     "ltp": quote.get("ltp", 0.0),
                     "change": quote.get("change", 0.0),
-                    "pct_change": quote.get("pct_change", 0.0)
+                    "pct_change": quote.get("pct_change", 0.0),
+                    "oi": quote.get("oi", 0.0),
+                    "close": quote.get("close", 0.0),
+                    "initial_oi": initial_oi
                 }
 
                 with self.lock:

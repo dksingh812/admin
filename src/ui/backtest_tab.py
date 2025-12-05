@@ -34,14 +34,15 @@ class BacktestTab(ttk.Frame):
         self.v_strat = tk.StringVar()
         self.cb_strat = ttk.Combobox(f_cfg, textvariable=self.v_strat, width=25, state="readonly")
         self.cb_strat.pack(side=tk.LEFT, padx=5)
-        self.refresh_strategies()
 
         # Symbol
         ttk.Label(f_cfg, text="Symbol:").pack(side=tk.LEFT, padx=10)
-        # Replaced Entry with SearchableCombobox
         self.cb_sym = SearchableCombobox(f_cfg, all_values=instrument_manager.get_all_symbols(), width=25)
         self.cb_sym.pack(side=tk.LEFT, padx=5)
         self.cb_sym.set("^NSEI")
+
+        # Now it is safe to refresh, because cb_sym exists
+        self.refresh_strategies()
 
         # Period/Interval
         ttk.Label(f_cfg, text="Period:").pack(side=tk.LEFT, padx=10)
