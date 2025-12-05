@@ -22,11 +22,7 @@ YF_MAPPING = {
         "Nikkei 225": "^N225",
         "Straits Times": "^STI",
         "Hang Seng": "^HSI",
-        "Taiwan Weighted": "^TWII",
-        "KOSPI": "^KS11",
-        "SET Composite": "^SET.BK",
-        "Jakarta Comp": "^JKSE",
-        "Shanghai Comp": "000001.SS"
+        "KOSPI": "^KS11"
     },
     "COMMODITIES": {
         "Brent Crude": "BZ=F",
@@ -60,53 +56,25 @@ class GlobalMarketScraper:
             self._fetch_yfinance(region, symbols)
 
     def _fetch_yfinance(self, region, symbols_map):
-        try:
-            tickers = list(symbols_map.values())
-            # yfinance allows bulk fetch
-            data = yf.download(tickers, period="1d", progress=False)
+        for name, ticker_sym in symbols_map.items():
+            try:
+                t = yf.Ticker(ticker_sym)
+                info = t.fast_info
 
-            # If single ticker, structure is different
-            if len(tickers) == 1:
-                # Handle single
-                pass
+                # Check for None
+                price = info.last_price
+                prev = info.previous_close
 
-            # Process results
-            # data['Close'] contains recent prices.
-            # We need latest price and prev close.
+                if price is not None and prev is not None:
+                    change = price - prev
+                    pct = (change / prev) * 100 if prev != 0 else 0.0
 
-            # Simpler approach: iterate tickers using Ticker object for accuracy
-            # Batch download is complex to parse for Change/Pct
+                    self._update_cache(region, name, price, change, pct)
+                else:
+                    logger.warning(f"YF No Data for {name}")
 
-            for name, ticker_sym in symbols_map.items():
-                try:
-                    t = yf.Ticker(ticker_sym)
-                    info = t.fast_info
-
-                    price = info.last_price
-                    prev = info.previous_close
-
-                    if price and prev:
-                        change = price - prev
-                        pct = (change / prev) * 100
-
-                        self._update_cache(region, name, price, change, pct)
-                    else:
-                        # Fallback to Google
-                        self._fetch_google(region, name, ticker_sym)
-
-                except Exception:
-                    self._fetch_google(region, name, ticker_sym)
-
-        except Exception as e:
-            logger.error(f"YFinance Batch Error: {e}")
-
-    def _fetch_google(self, region, name, ticker):
-        # Fallback scraping logic
-        # Construct search query?
-        # Google Finance URL structure is tricky.
-        # Minimal implementation: Just log warning and skip to keep it fast.
-        # Or try a requests call to finance.yahoo.com directly if library failed.
-        pass
+            except Exception as e:
+                logger.warning(f"YFinance Failed for {name}: {e}")
 
     def _update_cache(self, region, name, price, change, pct):
         with self.lock:

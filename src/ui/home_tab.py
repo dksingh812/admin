@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import ttk
 import ttkbootstrap as tb
 from src.global_market_scraper import global_market_scraper
+from src.instrument_manager import instrument_manager
 
 class HomeTab(ttk.Frame):
     def __init__(self, parent, context):
@@ -53,7 +54,7 @@ class HomeTab(ttk.Frame):
         f_grid.pack(fill=tk.BOTH, expand=True)
         f_grid.columnconfigure(0, weight=1)
         f_grid.columnconfigure(1, weight=1)
-        f_grid.columnconfigure(2, weight=1) # New column for OI Analysis
+        f_grid.columnconfigure(2, weight=1)
 
         # 1. PnL Card
         card_pnl = ttk.Labelframe(f_grid, text="PnL Summary", padding=20)
@@ -103,7 +104,6 @@ class HomeTab(ttk.Frame):
         ttk.Button(f_sys, text="Panic EXIT ALL", bootstyle="danger", command=self.panic_exit).pack(side=tk.RIGHT)
 
     def add_indices_content(self):
-        # ... (Same as before)
         def add_header(txt):
             lbl = ttk.Label(self.idx_content, text=txt, font=("Arial", 10, "bold"), foreground="#00bc8c", background="#2b2b2b")
             lbl.pack(fill=tk.X, pady=(15, 5), padx=5)
@@ -164,9 +164,22 @@ class HomeTab(ttk.Frame):
                     change = q['change']
                     pct = q['pct_change']
 
-                    # OI Logic for Nifty 50 only (Demo)
+                    # OI Logic for Nifty 50
                     if name == "NIFTY 50":
-                        self.update_oi_card(q)
+                        # Fetch Futures OI instead of Spot
+                        fut_sym = instrument_manager.get_near_future("NIFTY")
+                        if fut_sym:
+                            # Subscribe if not
+                            if fut_sym not in de.subscribed_symbols:
+                                de.subscribe([fut_sym])
+
+                            q_fut = de.get_latest_tick(fut_sym)
+                            # Combine: Spot Price (for signal) + Futures OI (for buildup)
+                            # Actually Signal needs Spot Price Change + Futures OI Change?
+                            # Usually Buildup is calculated on the Futures contract itself (Price + OI).
+                            # So we pass q_fut to analysis
+                            if q_fut.get('ltp'):
+                                self.update_oi_card(q_fut)
 
             # Global Fallback
             if price == 0:
@@ -186,12 +199,6 @@ class HomeTab(ttk.Frame):
         self.after(500, self.update_ui)
 
     def update_oi_card(self, tick_data):
-        # Logic:
-        # Price Up, OI Up -> Long Buildup (Green)
-        # Price Down, OI Up -> Short Buildup (Red)
-        # Price Down, OI Down -> Long Unwinding (Orange)
-        # Price Up, OI Down -> Short Covering (Blue)
-
         current_oi = tick_data.get('oi', 0)
         initial_oi = tick_data.get('initial_oi', 0)
         price_change = tick_data.get('change', 0)
@@ -205,7 +212,6 @@ class HomeTab(ttk.Frame):
             signal = "WAIT"
             sig_color = "secondary-inverse"
 
-            # Simple threshold for noise
             if abs(oi_change_pct) > 0.1:
                 if price_change > 0 and oi_change_pct > 0:
                     status = "Long Buildup"

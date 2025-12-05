@@ -8,15 +8,15 @@ import datetime
 import os
 from src.config import DATA_DIR
 from src.logger import logger
-from src.default_symbols import DEFAULT_SYMBOLS
+from src.default_symbols import DEFAULT_SYMBOLS, DEFAULT_SYMBOL_LIST
 
 INSTRUMENT_FILE = DATA_DIR / "complete_instrument_list.csv"
 
 class InstrumentManager:
     def __init__(self):
         self.df = None
-        # Initialize with DEFAULT_SYMBOLS immediately so UI is never empty
-        self.symbol_list = DEFAULT_SYMBOLS[:]
+        self.symbol_list = DEFAULT_SYMBOL_LIST[:]
+        self.default_map = DEFAULT_SYMBOLS
         self.loading = False
         self.loader_thread = threading.Thread(target=self.load_instruments, daemon=True)
         self.loader_thread.start()
@@ -63,50 +63,45 @@ class InstrumentManager:
     def load_instruments(self):
         self.loading = True
 
-        # Check if file exists, if not or old, download
         if not INSTRUMENT_FILE.exists():
             self.download_instruments()
 
         try:
             if INSTRUMENT_FILE.exists():
                 self.df = pd.read_csv(INSTRUMENT_FILE)
-                # Ensure columns are normalized
                 if 'tradingsymbol' in self.df.columns:
                     loaded_symbols = self.df['tradingsymbol'].dropna().astype(str).tolist()
                     loaded_symbols.sort()
-                    # Update symbol list with downloaded data
                     if loaded_symbols:
                         self.symbol_list = loaded_symbols
+                        logger.info(f"Instrument Manager Loaded {len(self.symbol_list)} symbols from CSV.")
+                    else:
+                        logger.warning("Loaded CSV but found no symbols.")
         except Exception as e:
             logger.error(f"Failed to load instrument list: {e}")
-            # Keep defaults
 
         self.loading = False
-        logger.info(f"Instrument Manager Loaded {len(self.symbol_list)} symbols.")
 
     def get_instrument_key(self, symbol):
+        if symbol in self.default_map:
+            return self.default_map[symbol]
+
         if self.df is None: return None
+
         row = self.df[self.df['tradingsymbol'] == symbol]
-        if not row.empty: return row.iloc[0]['instrument_key']
+        if not row.empty:
+            return row.iloc[0]['instrument_key']
+
         return None
 
     def get_all_symbols(self):
         return self.symbol_list
 
     def find_option(self, underlying, strike, opt_type):
-        """
-        Finds the nearest weekly expiry option for the given underlying, strike, and type.
-        """
         if self.df is None:
-            # Fallback for when data isn't loaded yet
-            # Return a constructed string which is likely correct for major indices
-            # e.g. BANKNIFTY23DEC48000CE (Format requires exact date logic which is hard to guess)
-            # Instead return generic string that broker might accept or user has to fix
             return f"{underlying} {strike} {opt_type}"
 
         try:
-            # Mask
-            # Starts with underlying (approx)
             mask = self.df['tradingsymbol'].str.startswith(underlying) & \
                    self.df['tradingsymbol'].str.contains(str(int(strike))) & \
                    self.df['tradingsymbol'].str.endswith(opt_type)
@@ -114,11 +109,43 @@ class InstrumentManager:
             candidates = self.df[mask]
 
             if not candidates.empty:
-                # Return the first one.
                 return candidates.iloc[0]['tradingsymbol']
         except Exception as e:
             logger.error(f"Error finding option: {e}")
 
         return f"{underlying} {strike} {opt_type}"
+
+    def get_near_future(self, index_name):
+        """Finds the nearest Future symbol for an Index (required for OI)."""
+        # Map Display Name to Underlying Symbol Prefix
+        # NIFTY 50 -> NIFTY
+        # BANKNIFTY -> BANKNIFTY
+        prefix = index_name.split()[0] # Simple heuristic
+
+        if self.df is None:
+            # Fallback Guess (Current Month)
+            now = datetime.datetime.now()
+            month_code = now.strftime("%b").upper() # JAN, FEB
+            year_short = now.strftime("%y") # 24
+            # Generic format often used, but exact symbol depends on broker
+            return f"{prefix} {month_code} FUT"
+
+        try:
+            # Filter for Futures
+            # Upstox Format: BANKNIFTY24JANFUT or similar
+            # instrument_type usually 'FUTIDX'
+            mask = (self.df['tradingsymbol'].str.startswith(prefix)) & \
+                   (self.df['instrument_type'] == 'FUTIDX')
+
+            candidates = self.df[mask].sort_values('expiry')
+
+            if not candidates.empty:
+                # Return nearest expiry
+                return candidates.iloc[0]['tradingsymbol']
+
+        except Exception as e:
+            logger.error(f"Error finding future: {e}")
+
+        return None
 
 instrument_manager = InstrumentManager()
