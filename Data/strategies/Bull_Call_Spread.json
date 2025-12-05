@@ -1,0 +1,18 @@
+{
+    "name": "Bull_Call_Spread",
+    "description": "Buys ATM Call and Sells OTM Call to fund the premium. Risk defined strategy for moderately bullish views.",
+    "target_symbol": "NIFTY 50",
+    "entry_conditions": [
+        {
+            "ind1": "RSI",
+            "op": ">",
+            "ind2": "60",
+            "p1": {"period": "14"},
+            "p2": {}
+        }
+    ],
+    "legs": [
+        ["CE", "ATM", "BUY", "50", "0", "Pts", "0", "Pts", "0", "Pts", "0", "Pts"],
+        ["CE", "ATM+200", "SELL", "50", "0", "Pts", "0", "Pts", "0", "Pts", "0", "Pts"]
+    ]
+}

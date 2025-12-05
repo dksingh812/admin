@@ -1,0 +1,17 @@
+{
+    "name": "SMA_Trend_Following",
+    "description": "Simple buying strategy. Enters Long when price is above 20-period SMA.",
+    "target_symbol": "^NSEI",
+    "entry_conditions": [
+        {
+            "ind1": "LTP",
+            "op": ">",
+            "ind2": "SMA",
+            "p1": {},
+            "p2": {"period": "20"}
+        }
+    ],
+    "legs": [
+        ["FUT", "ATM", "BUY", "50", "100", "Pts", "50", "Pts", "20", "Pts", "0", "Pts"]
+    ]
+}
