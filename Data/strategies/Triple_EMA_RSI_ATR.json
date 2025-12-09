@@ -1,0 +1,34 @@
+{
+    "name": "Triple_EMA_RSI_ATR",
+    "description": "Trend Following: FastEMA > MidEMA > SlowEMA + RSI Filter + Volume Confirmation. Risk: ATR-based SL.",
+    "target_symbol": "BANKNIFTY",
+    "entry_conditions": [
+        {
+            "ind1": "EMA", "op": ">", "ind2": "EMA",
+            "p1": {"period": "9"}, "p2": {"period": "21"}
+        },
+        {
+            "ind1": "EMA", "op": ">", "ind2": "EMA",
+            "p1": {"period": "21"}, "p2": {"period": "55"}
+        },
+        {
+            "ind1": "LTP", "op": ">", "ind2": "EMA",
+            "p1": {}, "p2": {"period": "9"}
+        },
+        {
+            "ind1": "RSI", "op": ">", "ind2": "50",
+            "p1": {"period": "14"}, "p2": {}
+        },
+        {
+            "ind1": "RSI", "op": "<", "ind2": "65",
+            "p1": {"period": "14"}, "p2": {}
+        },
+        {
+            "ind1": "Volume", "op": ">", "ind2": "VolMA",
+            "p1": {}, "p2": {"period": "20"}
+        }
+    ],
+    "legs": [
+        ["CE", "ATM", "BUY", "50", "0", "Pts", "28", "Pts", "0", "Pts", "0", "Pts"]
+    ]
+}

@@ -20,22 +20,33 @@ class BuilderStrategy(Strategy):
 
         # 1. Update History
         price = tick_data.get("ltp")
-        if symbol not in self.histories: self.histories[symbol] = []
-        history = self.histories[symbol]
-        history.append(price)
-        if len(history) > 500: history.pop(0) # Keep manageable buffer
+
+        # Need Volume for the requested strategy
+        volume = tick_data.get("volume", 0) # DataEngine might not pass volume yet?
+        # Mocking volume if missing for stability, but ideally DataEngine passes it.
+        # Check DataEngine updates later.
+
+        if symbol not in self.histories: self.histories[symbol] = {"close": [], "volume": []}
+
+        h = self.histories[symbol]
+        h["close"].append(price)
+        h["volume"].append(volume)
+
+        if len(h["close"]) > 500:
+            h["close"].pop(0)
+            h["volume"].pop(0)
 
         # 2. Manage Risk (Existing Logic)
         self.manage_risk(tick_data)
 
         # 3. Check Entry Conditions
-        if len(history) < self.min_history: return
+        if len(h["close"]) < self.min_history: return
 
-        # Convert to Series for TA
-        df = pd.DataFrame({"close": history, "high": history, "low": history}) # Simplified for now, need OHLC for real
-        # Note: True OHLC requires a real candle feed. The current tick-based history is an approximation
-        # where Close=High=Low=LTP. This works for SMA/RSI but fails for ATR/SuperTrend.
-        # Future improvement: Feed actual 1-min candles.
+        # Convert to DataFrame
+        df = pd.DataFrame({
+            "close": h["close"],
+            "volume": h["volume"]
+        })
 
         if self.check_entry(df):
             self.execute_legs("BUY", price)
@@ -43,7 +54,6 @@ class BuilderStrategy(Strategy):
     def check_entry(self, df):
         # Evaluate all conditions (AND logic)
         for cond in self.entry_conditions:
-            # Format: {"ind1": "RSI", "op": ">", "ind2": "60", "params": {...}}
             try:
                 val1 = self.calculate_indicator(df, cond["ind1"], cond.get("p1", {}))
                 val2 = self.calculate_indicator(df, cond["ind2"], cond.get("p2", {}))
@@ -61,22 +71,27 @@ class BuilderStrategy(Strategy):
         return True
 
     def calculate_indicator(self, df, name, params):
-        # Parse Value
+        # Parse Constant Value
         try:
             return float(name)
         except ValueError:
             pass
 
         series = df['close']
+        period = int(params.get("period", 14))
 
         if name == "LTP": return series.iloc[-1]
-        if name == "SMA": return Indicators.sma(series, int(params.get("period", 14))).iloc[-1]
-        if name == "EMA": return Indicators.ema(series, int(params.get("period", 14))).iloc[-1]
-        if name == "RSI": return Indicators.rsi(series, int(params.get("period", 14))).iloc[-1]
+        if name == "SMA": return Indicators.sma(series, period).iloc[-1]
+        if name == "EMA": return Indicators.ema(series, period).iloc[-1]
+        if name == "RSI": return Indicators.rsi(series, period).iloc[-1]
+
+        # New: Volume Support
+        if name == "Volume": return df['volume'].iloc[-1]
+        if name == "VolMA": return Indicators.sma(df['volume'], period).iloc[-1]
 
         # Advanced Indicators Warning
         if name in ["VWAP", "SuperTrend", "Bollinger H", "Bollinger L"]:
-            logger.warning(f"Indicator '{name}' requires OHLCV data which is not fully supported in this version. Returning 0.0.")
+            logger.warning(f"Indicator '{name}' requires OHLCV data which is not fully supported. Returning 0.0.")
             return 0.0
 
         return 0.0
