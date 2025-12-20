@@ -76,7 +76,9 @@ def get_company_data(ticker_symbol):
 
         # Let's try to locate the date in history
         # We use 'asof' logic or simple search
-        target_date = pd.Timestamp(date).tz_localize(None)
+        target_date = pd.Timestamp(date)
+        if target_date.tzinfo is not None:
+            target_date = target_date.tz_localize(None)
 
         # Filter history to dates <= target_date
         # Ensure history index is tz-naive for comparison to avoid issues
