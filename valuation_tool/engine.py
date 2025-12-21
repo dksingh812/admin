@@ -171,6 +171,161 @@ def get_company_data(ticker_symbol, period_type="annual", num_periods=6):
 
     return df, info, cashflow
 
+def calculate_piotroski_f_score(financials, balance_sheet, cashflow):
+    """
+    Calculates Piotroski F-Score (0-9) based on financial health.
+    Checks:
+    1. ROA > 0
+    2. CFO > 0
+    3. ROA > Prev ROA
+    4. CFO > Net Income
+    5. Long Term Debt < Prev Long Term Debt
+    6. Current Ratio > Prev Current Ratio
+    7. No New Shares Issued
+    8. Gross Margin > Prev Gross Margin
+    9. Asset Turnover > Prev Asset Turnover
+    """
+    score = 0
+    details = {}
+
+    try:
+        # Need at least 2 years of data
+        cols = financials.columns
+        if len(cols) < 2:
+            return 0, {'Error': 'Not enough data'}
+
+        curr = cols[0]
+        prev = cols[1]
+
+        # Helper to safely get value
+        def get_val(df, row, col, default=0):
+            try:
+                return df.loc[row, col]
+            except:
+                return default
+
+        # 1. Profitability
+        net_income = get_val(financials, 'Net Income', curr)
+        total_assets = get_val(balance_sheet, 'Total Assets', curr)
+        prev_assets = get_val(balance_sheet, 'Total Assets', prev)
+        avg_assets = (total_assets + prev_assets) / 2 if prev_assets else total_assets
+
+        roa = net_income / avg_assets if avg_assets else 0
+        prev_net_income = get_val(financials, 'Net Income', prev)
+        prev_roa = prev_net_income / prev_assets if prev_assets else 0
+
+        cfo = get_val(cashflow, 'Operating Cash Flow', curr)
+
+        # Check 1: Positive ROA
+        if roa > 0: score += 1; details['Positive ROA'] = True
+        else: details['Positive ROA'] = False
+
+        # Check 2: Positive CFO
+        if cfo > 0: score += 1; details['Positive CFO'] = True
+        else: details['Positive CFO'] = False
+
+        # Check 3: ROA Improvement
+        if roa > prev_roa: score += 1; details['ROA Improved'] = True
+        else: details['ROA Improved'] = False
+
+        # Check 4: CFO > Net Income (Quality of Earnings)
+        if cfo > net_income: score += 1; details['CFO > Net Income'] = True
+        else: details['CFO > Net Income'] = False
+
+        # 2. Leverage / Liquidity
+        lt_debt = get_val(balance_sheet, 'Long Term Debt', curr)
+        prev_lt_debt = get_val(balance_sheet, 'Long Term Debt', prev)
+
+        current_ratio = get_val(balance_sheet, 'Current Assets', curr) / get_val(balance_sheet, 'Current Liabilities', curr) if get_val(balance_sheet, 'Current Liabilities', curr) else 0
+        prev_current_ratio = get_val(balance_sheet, 'Current Assets', prev) / get_val(balance_sheet, 'Current Liabilities', prev) if get_val(balance_sheet, 'Current Liabilities', prev) else 0
+
+        shares_out = get_val(balance_sheet, 'Ordinary Shares Number', curr) # or 'Share Issued'
+        prev_shares_out = get_val(balance_sheet, 'Ordinary Shares Number', prev)
+
+        # Check 5: Debt Decreased (or stable if 0)
+        if lt_debt <= prev_lt_debt: score += 1; details['Lower Leverage'] = True
+        else: details['Lower Leverage'] = False
+
+        # Check 6: Current Ratio Improved
+        if current_ratio > prev_current_ratio: score += 1; details['Higher Liquidity'] = True
+        else: details['Higher Liquidity'] = False
+
+        # Check 7: No Dilution (Shares <= Prev)
+        if shares_out <= prev_shares_out: score += 1; details['No Dilution'] = True
+        else: details['No Dilution'] = False
+
+        # 3. Operating Efficiency
+        gross_profit = get_val(financials, 'Gross Profit', curr)
+        revenue = get_val(financials, 'Total Revenue', curr)
+        gm = gross_profit / revenue if revenue else 0
+
+        prev_gp = get_val(financials, 'Gross Profit', prev)
+        prev_rev = get_val(financials, 'Total Revenue', prev)
+        prev_gm = prev_gp / prev_rev if prev_rev else 0
+
+        asset_turnover = revenue / avg_assets if avg_assets else 0
+        prev_avg_assets = prev_assets # Approx
+        prev_asset_turnover = prev_rev / prev_avg_assets if prev_avg_assets else 0
+
+        # Check 8: Gross Margin Improved
+        if gm > prev_gm: score += 1; details['Margin Expanded'] = True
+        else: details['Margin Expanded'] = False
+
+        # Check 9: Asset Turnover Improved
+        if asset_turnover > prev_asset_turnover: score += 1; details['Asset Turnover Up'] = True
+        else: details['Asset Turnover Up'] = False
+
+    except Exception as e:
+        details['Error'] = str(e)
+
+    return score, details
+
+def calculate_technicals(ticker_symbol):
+    """
+    Calculates RSI, 50/200 DMA, Beta, 52W High/Low.
+    """
+    res = {}
+    try:
+        t = yf.Ticker(ticker_symbol)
+        # Need ~1 year for 200 DMA + 14 RSI
+        hist = t.history(period="1y")
+
+        if hist.empty:
+            return None
+
+        current_close = hist['Close'].iloc[-1]
+
+        # RSI (14)
+        delta = hist['Close'].diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+        rs = gain / loss
+        rsi = 100 - (100 / (1 + rs))
+        res['RSI'] = rsi.iloc[-1]
+
+        # Moving Averages
+        res['50 DMA'] = hist['Close'].rolling(window=50).mean().iloc[-1]
+        res['200 DMA'] = hist['Close'].rolling(window=200).mean().iloc[-1]
+
+        # 52 Week
+        res['52W High'] = hist['High'].max()
+        res['52W Low'] = hist['Low'].min()
+        res['Current Price'] = current_close
+
+        # Beta (from info usually)
+        res['Beta'] = t.info.get('beta')
+
+        # Trend
+        if current_close > res['200 DMA']:
+            res['Trend'] = "Bullish (Above 200 DMA)"
+        else:
+            res['Trend'] = "Bearish (Below 200 DMA)"
+
+    except Exception as e:
+        res['Error'] = str(e)
+
+    return res
+
 def calculate_graham_number(info):
     """
     Calculates Benjamin Graham's 'Fair Value' = Sqrt(22.5 * EPS * BVPS)
