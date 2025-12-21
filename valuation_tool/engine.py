@@ -186,7 +186,13 @@ def calculate_valuation(df, info):
     avg_growth = growth_values.mean() if not growth_values.empty else 0.0
 
     # 2. Expected EBITDA (Next Period)
-    last_actual_ebitda = df.iloc[0]['EBITDA']
+    # Find the most recent valid EBITDA (non-NaN, non-zero)
+    valid_ebitda_rows = df[df['EBITDA'].notna() & (df['EBITDA'] != 0)]
+    if not valid_ebitda_rows.empty:
+        last_actual_ebitda = valid_ebitda_rows.iloc[0]['EBITDA']
+    else:
+        last_actual_ebitda = 0 # Fallback if no valid data
+
     expected_ebitda = last_actual_ebitda * (1 + (avg_growth / 100))
 
     # 3. Forecasted EV
