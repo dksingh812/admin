@@ -12,7 +12,7 @@ def get_company_data(ticker_symbol, period_type="annual", num_periods=6):
         num_periods (int): Number of periods to fetch.
 
     Returns:
-        pd.DataFrame, dict: Processed dataframe and info dictionary.
+        pd.DataFrame, dict, pd.DataFrame: Processed dataframe, info dictionary, and cashflow dataframe.
     """
     ticker = yf.Ticker(ticker_symbol)
 
@@ -21,24 +21,26 @@ def get_company_data(ticker_symbol, period_type="annual", num_periods=6):
         if period_type == "quarterly":
             financials = ticker.quarterly_financials
             balance_sheet = ticker.quarterly_balance_sheet
+            cashflow = ticker.quarterly_cashflow
         else: # annual
             financials = ticker.financials
             balance_sheet = ticker.balance_sheet
+            cashflow = ticker.cashflow
 
         info = ticker.info
         history = ticker.history(period="10y") # Fetch plenty of history
     except Exception as e:
-        return None, f"Error fetching data from yfinance: {e}"
+        return None, f"Error fetching data from yfinance: {e}", None
 
     if financials.empty:
-        return None, f"Financials data ({period_type}) is empty."
+        return None, f"Financials data ({period_type}) is empty.", None
 
     # Extract Constants
     shares_outstanding = info.get('sharesOutstanding')
     current_price = info.get('currentPrice')
 
     if not shares_outstanding:
-        return None, "Shares Outstanding not available."
+        return None, "Shares Outstanding not available.", None
 
     # Align Data
     # Financials columns are dates.
@@ -80,10 +82,6 @@ def get_company_data(ticker_symbol, period_type="annual", num_periods=6):
                 # Take the max (closest to date)
                 bs_col = valid_dates.max()
             else:
-                # If no previous date, take the oldest available if reasonable?
-                # Or just NaN. Let's try to take the nearest even if future (unlikely) or just skip.
-                # Let's fallback to the *newest* available if we are looking at recent quarters and BS is lagged?
-                # Actually, standard practice: if BS missing for Q3, take Q2.
                 bs_col = None
 
         if bs_col is not None:
@@ -100,7 +98,6 @@ def get_company_data(ticker_symbol, period_type="annual", num_periods=6):
                 except KeyError:
                     cash = 0
         else:
-            # Fallback if absolutely no BS data correlates
             debt = 0
             cash = 0
 
@@ -164,11 +161,111 @@ def get_company_data(ticker_symbol, period_type="annual", num_periods=6):
 
     df['Growth in EBITDA (%)'] = growth_list
 
-    return df, info
+    return df, info, cashflow
 
-def calculate_valuation(df, info):
+def calculate_graham_number(info):
+    """
+    Calculates Benjamin Graham's 'Fair Value' = Sqrt(22.5 * EPS * BVPS)
+    """
+    try:
+        eps = info.get('trailingEps')
+        bvps = info.get('bookValue')
+        if eps and bvps and eps > 0 and bvps > 0:
+            return np.sqrt(22.5 * eps * bvps)
+    except:
+        pass
+    return None
+
+def calculate_dcf(info, cashflow, growth_rate_pct=10, discount_rate=0.12, terminal_growth=0.03, years=5):
+    """
+    Simple DCF Calculation.
+    FCF = Free Cash Flow
+    Projects FCF for 'years' at 'growth_rate_pct'.
+    Calculates Terminal Value at 'terminal_growth'.
+    Discounts to present value.
+    """
+    try:
+        # Get latest FCF
+        if cashflow is None or cashflow.empty:
+            # Fallback to info 'freeCashflow' if available (sometimes yfinance puts it there)
+            latest_fcf = info.get('freeCashflow')
+        else:
+            # Try to get FCF from cashflow dataframe
+            # Prioritize 'Free Cash Flow' key
+            if 'Free Cash Flow' in cashflow.index:
+                # Get the first valid column (most recent)
+                latest_fcf = cashflow.loc['Free Cash Flow'].iloc[0]
+            elif 'Operating Cash Flow' in cashflow.index and 'Capital Expenditure' in cashflow.index:
+                ocf = cashflow.loc['Operating Cash Flow'].iloc[0]
+                capex = cashflow.loc['Capital Expenditure'].iloc[0] # CapEx is usually negative
+                latest_fcf = ocf + capex
+            else:
+                latest_fcf = None
+
+        if not latest_fcf or np.isnan(latest_fcf):
+            return None
+
+        # Cap growth rate for safety (e.g. max 15%)
+        safe_growth = min(growth_rate_pct / 100.0, 0.15)
+        # Floor growth rate (e.g. min 2%)
+        safe_growth = max(safe_growth, 0.02)
+
+        shares = info.get('sharesOutstanding')
+        if not shares:
+            return None
+
+        # Projection
+        future_fcfs = []
+        current_fcf = latest_fcf
+
+        for i in range(1, years + 1):
+            current_fcf = current_fcf * (1 + safe_growth)
+            future_fcfs.append(current_fcf)
+
+        # Terminal Value
+        last_fcf = future_fcfs[-1]
+        terminal_value = (last_fcf * (1 + terminal_growth)) / (discount_rate - terminal_growth)
+
+        # Discounting
+        dcf_value = 0
+        for i, fcf in enumerate(future_fcfs):
+            dcf_value += fcf / ((1 + discount_rate) ** (i + 1))
+
+        dcf_value += terminal_value / ((1 + discount_rate) ** years)
+
+        fair_value_per_share = dcf_value / shares
+        return fair_value_per_share
+
+    except Exception as e:
+        print(f"DCF Error: {e}")
+        return None
+
+def calculate_peg_valuation(info, growth_rate_pct):
+    """
+    Estimates Price based on PEG = 1 (Fair Value).
+    Fair Price = (P/E / PEG) * EPS? No.
+    PEG = (P/E) / Growth.
+    Fair P/E (PEG=1) = Growth Rate.
+    Fair Price = Fair P/E * EPS = Growth Rate * EPS.
+    """
+    try:
+        eps = info.get('trailingEps')
+        if eps and eps > 0 and growth_rate_pct > 0:
+            # Limit growth rate impact (e.g., typically PEG uses integer growth like 15 for 15%)
+            # If growth is 15%, Fair PE is 15.
+            # Cap Growth P/E to reasonable max (e.g., 30-40) to avoid crazy valuations for 100% growth
+            safe_growth_pe = min(growth_rate_pct, 35.0)
+            safe_growth_pe = max(safe_growth_pe, 5.0) # Min P/E 5
+
+            return safe_growth_pe * eps
+    except:
+        pass
+    return None
+
+def calculate_valuation(df, info, cashflow=None):
     """
     Performs valuation logic. Works for both Annual and Quarterly df.
+    Updated to include advanced models.
     """
     if df is None or df.empty:
         return None
@@ -182,66 +279,61 @@ def calculate_valuation(df, info):
 
     # 1. Avg Growth (Last 3 periods)
     growth_values = df['Growth in EBITDA (%)'].dropna().head(3)
-    # If fewer than 3 periods, take mean of what's available
     avg_growth = growth_values.mean() if not growth_values.empty else 0.0
 
-    # 2. Expected EBITDA (Next Period)
-    # Find the most recent valid EBITDA (non-NaN, non-zero)
+    # 2. Expected EBITDA
     valid_ebitda_rows = df[df['EBITDA'].notna() & (df['EBITDA'] != 0)]
     if not valid_ebitda_rows.empty:
         last_actual_ebitda = valid_ebitda_rows.iloc[0]['EBITDA']
     else:
-        last_actual_ebitda = 0 # Fallback if no valid data
+        last_actual_ebitda = 0
 
     expected_ebitda = last_actual_ebitda * (1 + (avg_growth / 100))
 
-    # 3. Forecasted EV
-    # CAREFUL: Current EV/EBITDA (TTM) applies to Annualized EBITDA.
-    # If we are using Quarterly EBITDA, we shouldn't multiply Quarterly EBITDA by TTM EV/EBITDA multiple directly
-    # to get Full Enterprise Value, unless the multiple is also quarterly-based (it's usually not).
-    # However, 'info.enterpriseToEbitda' is usually EV / TTM_EBITDA.
-    # If our 'df' is Quarterly, 'last_actual_ebitda' is ~1/4th of annual.
-    # If we use that * TTM Multiple, we get ~1/4th of Target EV.
-    # So we should probably Annualize the Expected EBITDA if using a TTM multiple.
-    # OR: The prompt doesn't specify this nuance.
-    # Logic: Target EV = Target EBITDA * Multiple.
-    # If multiple is TTM (Price / Annual EBITDA), then Target EBITDA must be Annual.
-    # If the user selects "Quarterly", they see Quarterly EBITDA.
-    # "Expected EBITDA" for the next quarter.
-    # If we want Target Stock Price, we need Target EV for the whole company.
-    # So we should take (Expected Quarterly EBITDA * 4) * TTM Multiple?
-    # Or just assume the user wants the raw math as per the excel sheet logic:
-    # "Forecasted EV = Current EV/EBITDA * Expected EBITDA"
-    # If the excel sheet row is Annual, this works.
-    # If the excel sheet row is Quarterly, this math implies the multiple is a "Quarterly Multiple" (which is 4x larger than Annual multiple).
-    # Since yfinance returns TTM multiple (Annual), we must adjust.
-
-    # Heuristic: Detect if data is Quarterly (by checking info or period label)
-    # But `calculate_valuation` just sees `df`.
-    # Let's check the period label of the first row.
+    # 3. Forecasted EV (EV/EBITDA Model)
     is_quarterly = "Q" in str(df.iloc[0]['Period'])
 
     if is_quarterly:
-        # Annualize the expected EBITDA for valuation purposes
         valuation_ebitda = expected_ebitda * 4
     else:
         valuation_ebitda = expected_ebitda
 
-    forecasted_ev = current_ev_ebitda * valuation_ebitda
+    if current_ev_ebitda:
+        forecasted_ev = current_ev_ebitda * valuation_ebitda
+        target_price_ev = forecasted_ev / shares_outstanding
+    else:
+        forecasted_ev = 0
+        target_price_ev = 0
 
-    target_price = forecasted_ev / shares_outstanding
-    entry_price = target_price * 0.75
+    entry_price_ev = target_price_ev * 0.75
+
+    # --- Advanced Models ---
+
+    # Graham Number
+    graham_num = calculate_graham_number(info)
+
+    # DCF
+    # Use avg_growth as a proxy for FCF growth, but cap it.
+    dcf_price = calculate_dcf(info, cashflow, growth_rate_pct=avg_growth)
+
+    # PEG Model
+    peg_price = calculate_peg_valuation(info, growth_rate_pct=avg_growth)
 
     results = {
-        'Avg Growth (%)': avg_growth, # Label changed to generic "Avg Growth"
+        'Avg Growth (%)': avg_growth,
         'Expected EBITDA': expected_ebitda,
         'Forecasted EV': forecasted_ev,
-        'Target Price': target_price,
-        'Entry Price': entry_price,
+        'Target Price': target_price_ev, # Legacy key for main view
+        'Entry Price': entry_price_ev,   # Legacy key for main view
         'Current Price': current_price,
         'Current EV/EBITDA': current_ev_ebitda,
-        'Recommendation': 'BUY' if current_price < entry_price else 'WAIT',
-        'Is Quarterly': is_quarterly
+        'Recommendation': 'BUY' if current_price < entry_price_ev else 'WAIT',
+        'Is Quarterly': is_quarterly,
+
+        # New Models
+        'Graham Number': graham_num,
+        'DCF Value': dcf_price,
+        'PEG Fair Value': peg_price
     }
 
     return results
