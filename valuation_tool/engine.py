@@ -285,35 +285,34 @@ def calculate_peg_valuation(info, growth_rate_pct):
         pass
     return {'value': None, 'inputs': inputs}
 
-def calculate_mean_reversion(df, info):
+def calculate_mean_reversion(df, info, lookback_years=5):
     """
     Calculates Target Price based on Mean Reversion of P/E.
-    Target = Current EPS * Average Historical P/E (5-Year).
+    Target = Current EPS * Average Historical P/E (N-Year).
     """
-    inputs = {'formula': 'Current EPS * 5-Year Avg P/E'}
+    inputs = {'formula': f'Current EPS * {lookback_years}-Year Avg P/E'}
     try:
         eps_ttm = info.get('trailingEps')
         inputs['EPS (TTM)'] = eps_ttm
 
-        # Calculate Historical P/E from df
-        # df contains 'Close Price' and 'EPS' for each period (Annual)
-        # We need P/E = Close Price / EPS
-        # Filter rows where both exist and are positive
-
         pe_list = []
+        # Calculate P/E for each year
         for index, row in df.iterrows():
             if row['EPS'] and row['EPS'] > 0 and row['Close Price'] and row['Close Price'] > 0:
                 pe = row['Close Price'] / row['EPS']
                 pe_list.append(pe)
 
-        if not pe_list:
+        # Filter based on requested lookback (pe_list is newest first)
+        pe_list_slice = pe_list[:lookback_years]
+
+        if not pe_list_slice:
              inputs['Error'] = "Not enough historical P/E data"
              return {'value': None, 'inputs': inputs}
 
-        # Calculate Average P/E (Mean of available data points)
-        avg_pe = sum(pe_list) / len(pe_list)
-        inputs['Historical P/E (Avg)'] = avg_pe
-        inputs['Data Points'] = len(pe_list)
+        # Calculate Average P/E
+        avg_pe = sum(pe_list_slice) / len(pe_list_slice)
+        inputs[f'Historical P/E (Avg {len(pe_list_slice)} Yrs)'] = avg_pe
+        inputs['Data Points Used'] = len(pe_list_slice)
 
         if eps_ttm and eps_ttm > 0:
             target = eps_ttm * avg_pe
@@ -326,24 +325,37 @@ def calculate_mean_reversion(df, info):
          inputs['Error'] = str(e)
          return {'value': None, 'inputs': inputs}
 
-def calculate_valuation(df, info, cashflow=None):
+def calculate_valuation(df, info, cashflow=None, overrides=None):
     """
-    Performs valuation logic. Works for both Annual and Quarterly df.
-    Updated to return detailed dicts for all models.
+    Performs valuation logic.
+    Args:
+        overrides (dict): Optional manual overrides for 'growth_rate', 'ev_ebitda', 'mr_period'.
     """
     if df is None or df.empty:
         return None
 
+    overrides = overrides or {}
+
     shares_outstanding = info.get('sharesOutstanding')
     current_price = info.get('currentPrice')
-    current_ev_ebitda = info.get('enterpriseToEbitda')
 
+    # --- EV/EBITDA Override Logic ---
+    current_ev_ebitda = info.get('enterpriseToEbitda')
     if not current_ev_ebitda and not df.empty:
          current_ev_ebitda = df.iloc[0]['EV/EBITDA (X)']
+
+    if overrides.get('ev_ebitda') is not None:
+        current_ev_ebitda = overrides['ev_ebitda'] # User override
 
     # 1. Avg Growth (Last 3 periods)
     growth_values = df['Growth in EBITDA (%)'].dropna().head(3)
     avg_growth = growth_values.mean() if not growth_values.empty else 0.0
+
+    # --- Growth Rate Override Logic ---
+    if overrides.get('growth_rate') is not None:
+        effective_growth_rate = overrides['growth_rate']
+    else:
+        effective_growth_rate = avg_growth
 
     # 2. Expected EBITDA
     valid_ebitda_rows = df[df['EBITDA'].notna() & (df['EBITDA'] != 0)]
@@ -352,7 +364,8 @@ def calculate_valuation(df, info, cashflow=None):
     else:
         last_actual_ebitda = 0
 
-    expected_ebitda = last_actual_ebitda * (1 + (avg_growth / 100))
+    # Calculate Expected EBITDA using the effective (possibly overridden) growth rate
+    expected_ebitda = last_actual_ebitda * (1 + (effective_growth_rate / 100))
 
     # 3. Forecasted EV (EV/EBITDA Model)
     is_quarterly = "Q" in str(df.iloc[0]['Period'])
@@ -375,7 +388,8 @@ def calculate_valuation(df, info, cashflow=None):
         'Current EV/EBITDA': current_ev_ebitda,
         'Expected EBITDA': expected_ebitda,
         'Annualization Factor': 4 if is_quarterly else 1,
-        'Shares': shares_outstanding
+        'Shares': shares_outstanding,
+        'Used Growth Rate': f"{effective_growth_rate:.2f}%"
     }
 
     # --- Advanced Models ---
@@ -383,17 +397,18 @@ def calculate_valuation(df, info, cashflow=None):
     # Graham Number
     graham_res = calculate_graham_number(info)
 
-    # DCF
-    dcf_res = calculate_dcf(info, cashflow, growth_rate_pct=avg_growth)
+    # DCF (Use Effective Growth Rate)
+    dcf_res = calculate_dcf(info, cashflow, growth_rate_pct=effective_growth_rate)
 
-    # PEG Model
-    peg_res = calculate_peg_valuation(info, growth_rate_pct=avg_growth)
+    # PEG Model (Use Effective Growth Rate)
+    peg_res = calculate_peg_valuation(info, growth_rate_pct=effective_growth_rate)
 
-    # Mean Reversion
-    mr_res = calculate_mean_reversion(df, info)
+    # Mean Reversion (Use Override Period)
+    mr_years = overrides.get('mr_period', 5)
+    mr_res = calculate_mean_reversion(df, info, lookback_years=mr_years)
 
     results = {
-        'Avg Growth (%)': avg_growth,
+        'Avg Growth (%)': effective_growth_rate, # Return effective growth for display
         'Expected EBITDA': expected_ebitda,
         'Forecasted EV': forecasted_ev,
         'Target Price': target_price_ev,

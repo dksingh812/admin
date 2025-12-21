@@ -27,14 +27,58 @@ def main():
     selected_ticker = st.selectbox("Select Company:", TICKERS, index=TICKERS.index("RELIANCE.NS") if "RELIANCE.NS" in TICKERS else 0)
 
     if st.button("Analyze"):
+        # We use session state to persist data so changing sidebar assumptions doesn't re-fetch
+        st.session_state['data_fetched'] = True
+        st.session_state['ticker'] = selected_ticker
+        st.session_state['freq'] = frequency
+
+    if st.session_state.get('data_fetched') and st.session_state.get('ticker') == selected_ticker:
         with st.spinner(f"Fetching {frequency} data for {selected_ticker}..."):
+            # Fetch only if needed or rely on caching (get_company_data uses yfinance which caches internally usually, but we call it fresh)
+            # ideally we cache this call
             df, info, cashflow = get_company_data(selected_ticker, period_type=period_type, num_periods=num_periods)
 
             if df is None or df.empty:
                 st.error(info if isinstance(info, str) else "No data found.")
                 return
 
-            valuation = calculate_valuation(df, info, cashflow)
+            # --- Model Assumptions UI (Sidebar) ---
+            with st.sidebar:
+                st.markdown("---")
+                with st.expander("🔧 Model Assumptions", expanded=True):
+                    # 1. Calc Initial Values for defaults
+                    # We run a temporary calc to get the 'natural' values
+                    base_val = calculate_valuation(df, info, cashflow)
+                    natural_growth = base_val['Avg Growth (%)']
+                    natural_multiple = base_val['Current EV/EBITDA'] or 0.0
+
+                    st.caption("Customize the inputs below to see how valuation changes.")
+
+                    custom_growth = st.number_input(
+                        "Growth Rate (%)",
+                        value=float(f"{natural_growth:.2f}"),
+                        step=0.5,
+                        help="Affects DCF, PEG, and EBITDA Projection."
+                    )
+
+                    custom_multiple = st.number_input(
+                        "EV/EBITDA Multiple",
+                        value=float(f"{natural_multiple:.2f}"),
+                        step=0.5,
+                        help="The multiple applied to projected EBITDA."
+                    )
+
+                    mr_period_map = {"3-Year Avg": 3, "5-Year Avg": 5, "10-Year Avg": 10}
+                    mr_choice = st.selectbox("Mean Reversion P/E", list(mr_period_map.keys()), index=1) # Default 5-Year
+
+                    overrides = {
+                        'growth_rate': custom_growth,
+                        'ev_ebitda': custom_multiple,
+                        'mr_period': mr_period_map[mr_choice]
+                    }
+
+            # Calculate Final Valuation with Overrides
+            valuation = calculate_valuation(df, info, cashflow, overrides)
             current_price = valuation['Current Price']
 
             # --- Layout ---
@@ -88,11 +132,10 @@ def main():
             st.markdown("### Detailed Model Cards")
 
             # Display Cards Grid
-            # We'll use columns for the grid
             cols = st.columns(3)
 
             for i, (name, res) in enumerate(models):
-                with cols[i % 3]: # Wrap around 3 columns
+                with cols[i % 3]:
                     val = res['value']
                     inputs = res['inputs']
 
