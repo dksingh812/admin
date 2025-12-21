@@ -117,6 +117,12 @@ def get_company_data(ticker_symbol, period_type="annual", num_periods=6):
         else:
             close_price = np.nan
 
+        # EPS (Basic EPS)
+        try:
+            eps = financials.loc['Basic EPS', date]
+        except KeyError:
+            eps = np.nan
+
         # Calculate Metrics
         if not np.isnan(close_price):
             market_cap = close_price * shares_outstanding
@@ -135,6 +141,8 @@ def get_company_data(ticker_symbol, period_type="annual", num_periods=6):
             'Enterprise Value': ev,
             'EBITDA': ebitda,
             'EV/EBITDA (X)': ev_to_ebitda,
+            'EPS': eps,
+            'Close Price': close_price,
             'Date': date
         })
 
@@ -167,14 +175,19 @@ def calculate_graham_number(info):
     """
     Calculates Benjamin Graham's 'Fair Value' = Sqrt(22.5 * EPS * BVPS)
     """
+    inputs = {'formula': 'Sqrt(22.5 * EPS * BVPS)'}
     try:
         eps = info.get('trailingEps')
         bvps = info.get('bookValue')
+        inputs['EPS (TTM)'] = eps
+        inputs['Book Value (BVPS)'] = bvps
+
         if eps and bvps and eps > 0 and bvps > 0:
-            return np.sqrt(22.5 * eps * bvps)
+            val = np.sqrt(22.5 * eps * bvps)
+            return {'value': val, 'inputs': inputs}
     except:
         pass
-    return None
+    return {'value': None, 'inputs': inputs}
 
 def calculate_dcf(info, cashflow, growth_rate_pct=10, discount_rate=0.12, terminal_growth=0.03, years=5):
     """
@@ -184,35 +197,43 @@ def calculate_dcf(info, cashflow, growth_rate_pct=10, discount_rate=0.12, termin
     Calculates Terminal Value at 'terminal_growth'.
     Discounts to present value.
     """
+    inputs = {
+        'formula': 'Sum(FCF / (1+r)^t) + TermVal',
+        'Discount Rate': f"{discount_rate*100}%",
+        'Terminal Growth': f"{terminal_growth*100}%"
+    }
+
     try:
         # Get latest FCF
         if cashflow is None or cashflow.empty:
-            # Fallback to info 'freeCashflow' if available (sometimes yfinance puts it there)
             latest_fcf = info.get('freeCashflow')
         else:
-            # Try to get FCF from cashflow dataframe
-            # Prioritize 'Free Cash Flow' key
             if 'Free Cash Flow' in cashflow.index:
-                # Get the first valid column (most recent)
                 latest_fcf = cashflow.loc['Free Cash Flow'].iloc[0]
             elif 'Operating Cash Flow' in cashflow.index and 'Capital Expenditure' in cashflow.index:
                 ocf = cashflow.loc['Operating Cash Flow'].iloc[0]
-                capex = cashflow.loc['Capital Expenditure'].iloc[0] # CapEx is usually negative
+                capex = cashflow.loc['Capital Expenditure'].iloc[0]
                 latest_fcf = ocf + capex
             else:
                 latest_fcf = None
 
         if not latest_fcf or np.isnan(latest_fcf):
-            return None
+            inputs['Error'] = "No FCF data found"
+            return {'value': None, 'inputs': inputs}
+
+        inputs['Latest FCF'] = latest_fcf
 
         # Cap growth rate for safety (e.g. max 15%)
         safe_growth = min(growth_rate_pct / 100.0, 0.15)
         # Floor growth rate (e.g. min 2%)
         safe_growth = max(safe_growth, 0.02)
 
+        inputs['Assumed Growth Rate'] = f"{safe_growth*100:.2f}% (Capped 15%)"
+
         shares = info.get('sharesOutstanding')
         if not shares:
-            return None
+            inputs['Error'] = "No Share Count"
+            return {'value': None, 'inputs': inputs}
 
         # Projection
         future_fcfs = []
@@ -234,38 +255,81 @@ def calculate_dcf(info, cashflow, growth_rate_pct=10, discount_rate=0.12, termin
         dcf_value += terminal_value / ((1 + discount_rate) ** years)
 
         fair_value_per_share = dcf_value / shares
-        return fair_value_per_share
+        return {'value': fair_value_per_share, 'inputs': inputs}
 
     except Exception as e:
-        print(f"DCF Error: {e}")
-        return None
+        inputs['Error'] = str(e)
+        return {'value': None, 'inputs': inputs}
 
 def calculate_peg_valuation(info, growth_rate_pct):
     """
     Estimates Price based on PEG = 1 (Fair Value).
-    Fair Price = (P/E / PEG) * EPS? No.
-    PEG = (P/E) / Growth.
-    Fair P/E (PEG=1) = Growth Rate.
-    Fair Price = Fair P/E * EPS = Growth Rate * EPS.
+    Fair Price = Growth Rate * EPS.
     """
+    inputs = {'formula': 'Fair P/E * EPS (where Fair P/E = Growth Rate)'}
     try:
         eps = info.get('trailingEps')
-        if eps and eps > 0 and growth_rate_pct > 0:
-            # Limit growth rate impact (e.g., typically PEG uses integer growth like 15 for 15%)
-            # If growth is 15%, Fair PE is 15.
-            # Cap Growth P/E to reasonable max (e.g., 30-40) to avoid crazy valuations for 100% growth
-            safe_growth_pe = min(growth_rate_pct, 35.0)
-            safe_growth_pe = max(safe_growth_pe, 5.0) # Min P/E 5
+        inputs['EPS (TTM)'] = eps
+        inputs['Growth Rate Input'] = f"{growth_rate_pct:.2f}%"
 
-            return safe_growth_pe * eps
+        if eps and eps > 0 and growth_rate_pct > 0:
+            # Limit growth rate impact
+            safe_growth_pe = min(growth_rate_pct, 35.0)
+            safe_growth_pe = max(safe_growth_pe, 5.0)
+
+            inputs['Applied P/E Multiple'] = safe_growth_pe
+
+            val = safe_growth_pe * eps
+            return {'value': val, 'inputs': inputs}
     except:
         pass
-    return None
+    return {'value': None, 'inputs': inputs}
+
+def calculate_mean_reversion(df, info):
+    """
+    Calculates Target Price based on Mean Reversion of P/E.
+    Target = Current EPS * Average Historical P/E (5-Year).
+    """
+    inputs = {'formula': 'Current EPS * 5-Year Avg P/E'}
+    try:
+        eps_ttm = info.get('trailingEps')
+        inputs['EPS (TTM)'] = eps_ttm
+
+        # Calculate Historical P/E from df
+        # df contains 'Close Price' and 'EPS' for each period (Annual)
+        # We need P/E = Close Price / EPS
+        # Filter rows where both exist and are positive
+
+        pe_list = []
+        for index, row in df.iterrows():
+            if row['EPS'] and row['EPS'] > 0 and row['Close Price'] and row['Close Price'] > 0:
+                pe = row['Close Price'] / row['EPS']
+                pe_list.append(pe)
+
+        if not pe_list:
+             inputs['Error'] = "Not enough historical P/E data"
+             return {'value': None, 'inputs': inputs}
+
+        # Calculate Average P/E (Mean of available data points)
+        avg_pe = sum(pe_list) / len(pe_list)
+        inputs['Historical P/E (Avg)'] = avg_pe
+        inputs['Data Points'] = len(pe_list)
+
+        if eps_ttm and eps_ttm > 0:
+            target = eps_ttm * avg_pe
+            return {'value': target, 'inputs': inputs}
+        else:
+             inputs['Error'] = "Current EPS invalid"
+             return {'value': None, 'inputs': inputs}
+
+    except Exception as e:
+         inputs['Error'] = str(e)
+         return {'value': None, 'inputs': inputs}
 
 def calculate_valuation(df, info, cashflow=None):
     """
     Performs valuation logic. Works for both Annual and Quarterly df.
-    Updated to include advanced models.
+    Updated to return detailed dicts for all models.
     """
     if df is None or df.empty:
         return None
@@ -307,33 +371,44 @@ def calculate_valuation(df, info, cashflow=None):
 
     entry_price_ev = target_price_ev * 0.75
 
+    ev_inputs = {
+        'Current EV/EBITDA': current_ev_ebitda,
+        'Expected EBITDA': expected_ebitda,
+        'Annualization Factor': 4 if is_quarterly else 1,
+        'Shares': shares_outstanding
+    }
+
     # --- Advanced Models ---
 
     # Graham Number
-    graham_num = calculate_graham_number(info)
+    graham_res = calculate_graham_number(info)
 
     # DCF
-    # Use avg_growth as a proxy for FCF growth, but cap it.
-    dcf_price = calculate_dcf(info, cashflow, growth_rate_pct=avg_growth)
+    dcf_res = calculate_dcf(info, cashflow, growth_rate_pct=avg_growth)
 
     # PEG Model
-    peg_price = calculate_peg_valuation(info, growth_rate_pct=avg_growth)
+    peg_res = calculate_peg_valuation(info, growth_rate_pct=avg_growth)
+
+    # Mean Reversion
+    mr_res = calculate_mean_reversion(df, info)
 
     results = {
         'Avg Growth (%)': avg_growth,
         'Expected EBITDA': expected_ebitda,
         'Forecasted EV': forecasted_ev,
-        'Target Price': target_price_ev, # Legacy key for main view
-        'Entry Price': entry_price_ev,   # Legacy key for main view
+        'Target Price': target_price_ev,
+        'Entry Price': entry_price_ev,
         'Current Price': current_price,
         'Current EV/EBITDA': current_ev_ebitda,
         'Recommendation': 'BUY' if current_price < entry_price_ev else 'WAIT',
         'Is Quarterly': is_quarterly,
 
-        # New Models
-        'Graham Number': graham_num,
-        'DCF Value': dcf_price,
-        'PEG Fair Value': peg_price
+        # New Detailed Models
+        'Model: EV/EBITDA': {'value': target_price_ev, 'inputs': ev_inputs},
+        'Model: Graham': graham_res,
+        'Model: DCF': dcf_res,
+        'Model: PEG': peg_res,
+        'Model: Mean Reversion': mr_res
     }
 
     return results

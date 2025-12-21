@@ -35,17 +35,15 @@ def main():
                 return
 
             valuation = calculate_valuation(df, info, cashflow)
+            current_price = valuation['Current Price']
 
             # --- Layout ---
 
             # 1. Company Header
             st.subheader(f"{info.get('longName', selected_ticker)}")
 
-            # 2. Main Valuation (EV/EBITDA)
+            # 2. Main Valuation (EV/EBITDA) - Legacy Top View
             col1, col2, col3, col4 = st.columns(4)
-
-            current_price = valuation['Current Price']
-
             with col1:
                 st.metric("Current Price", f"₹{current_price:.2f}")
             with col2:
@@ -61,57 +59,77 @@ def main():
             st.markdown("---")
             st.header("🤖 Comprehensive Valuation Models")
 
-            # Prepare Data for Comparison
-            model_data = []
+            # Consensus Logic
+            models = [
+                ("EV / EBITDA", valuation['Model: EV/EBITDA']),
+                ("Graham Number", valuation['Model: Graham']),
+                ("DCF (Intrinsic)", valuation['Model: DCF']),
+                ("PEG Fair Value", valuation['Model: PEG']),
+                ("Mean Reversion (P/E)", valuation['Model: Mean Reversion'])
+            ]
 
-            # Helper to add model if valid
-            def add_model(name, target, desc):
-                if target and not np.isnan(target):
-                    diff = ((target - current_price) / current_price) * 100
-                    status = "Undervalued" if diff > 0 else "Overvalued"
-                    model_data.append({
-                        "Model": name,
-                        "Estimated Value (₹)": f"{target:,.2f}",
-                        "Upside/Downside": f"{diff:+.2f}%",
-                        "Status": status,
-                        "Description": desc
-                    })
+            valid_targets = []
+            for name, res in models:
+                if res['value'] and not np.isnan(res['value']):
+                    valid_targets.append(res['value'])
 
-            add_model("EV / EBITDA", valuation['Target Price'], "Based on operating profitability (Good for debt-heavy/manufacturing)")
-            add_model("Graham Number", valuation['Graham Number'], "Benjamin Graham's 'Safety' price (Strict Value)")
-            add_model("DCF (Discounted Cash Flow)", valuation['DCF Value'], "Intrinsic value based on future free cash flow (Gold Standard)")
-            add_model("PEG Fair Value", valuation['PEG Fair Value'], "Peter Lynch's Growth-adjusted value (Good for high growth)")
-
-            if model_data:
-                res_df = pd.DataFrame(model_data)
-
-                # Consensus
-                valid_targets = [float(d["Estimated Value (₹)"].replace(",","")) for d in model_data]
+            if valid_targets:
                 consensus = sum(valid_targets) / len(valid_targets)
                 con_diff = ((consensus - current_price) / current_price) * 100
 
-                c1, c2 = st.columns([2, 1])
-                with c1:
-                    st.dataframe(res_df, use_container_width=True)
-                with c2:
-                    st.markdown("### Consensus Target")
-                    st.metric("Average Fair Value", f"₹{consensus:,.2f}", f"{con_diff:+.2f}%")
+                st.markdown(f"### Consensus Target: **₹{consensus:,.2f}** ({con_diff:+.2f}%)")
+                if con_diff > 15:
+                    st.success("Consensus says: **STRONG BUY** (Undervalued)")
+                elif con_diff > 0:
+                    st.info("Consensus says: **BUY/HOLD** (Fairly Valued)")
+                else:
+                    st.warning("Consensus says: **WAIT** (Overvalued)")
 
-                    if con_diff > 15:
-                        st.success("Consensus: STRONG BUY")
-                    elif con_diff > 0:
-                        st.info("Consensus: BUY/HOLD")
+            st.markdown("### Detailed Model Cards")
+
+            # Display Cards Grid
+            # We'll use columns for the grid
+            cols = st.columns(3)
+
+            for i, (name, res) in enumerate(models):
+                with cols[i % 3]: # Wrap around 3 columns
+                    val = res['value']
+                    inputs = res['inputs']
+
+                    if val and not np.isnan(val):
+                        diff = ((val - current_price) / current_price) * 100
+                        color = "green" if diff > 0 else "red"
+
+                        st.markdown(f"""
+                        <div style="border:1px solid #ddd; padding:10px; border-radius:5px; margin-bottom:10px">
+                            <h4>{name}</h4>
+                            <h2 style="color:{color}">₹{val:,.2f}</h2>
+                            <p>Upside: {diff:+.2f}%</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                        with st.expander("See Calculation"):
+                            st.write(f"**Formula:** {inputs.get('formula', 'N/A')}")
+                            st.divider()
+                            for k, v in inputs.items():
+                                if k != 'formula':
+                                    st.write(f"**{k}:** {v}")
                     else:
-                        st.warning("Consensus: WAIT / OVERVALUED")
-            else:
-                st.warning("Not enough data to run advanced models.")
+                        st.markdown(f"""
+                        <div style="border:1px solid #ddd; padding:10px; border-radius:5px; margin-bottom:10px; opacity:0.6">
+                            <h4>{name}</h4>
+                            <h2>N/A</h2>
+                            <p>{inputs.get('Error', 'Insufficient Data')}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+
 
             # 3. Main Data Table (Historical)
             st.markdown("---")
             st.markdown(f"### {frequency} Financials & Analysis")
 
             # Formatting DataFrame for Display
-            display_df = df[['Period', 'Enterprise Value', 'EBITDA', 'EV/EBITDA (X)', 'Growth in EBITDA (%)']].copy()
+            display_df = df[['Period', 'Enterprise Value', 'EBITDA', 'EV/EBITDA (X)', 'EPS', 'Close Price', 'Growth in EBITDA (%)']].copy()
 
             # Add Projected Column logic
             last_period_label = display_df.iloc[0]['Period']
