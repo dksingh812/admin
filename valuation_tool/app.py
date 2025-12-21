@@ -9,17 +9,29 @@ st.set_page_config(page_title="Valuation Dashboard", layout="wide")
 
 def main():
     st.title("Valuation Dashboard")
-    st.markdown("Search for an NSE stock to view its 5-year valuation based on EBITDA/EV multiples.")
+    st.markdown("Search for an NSE stock to view its valuation based on EBITDA/EV multiples.")
 
-    # Sidebar / Top Selection
+    # Sidebar Controls
+    with st.sidebar:
+        st.header("Settings")
+        frequency = st.radio("Frequency", ["Annual", "Quarterly"])
+
+        if frequency == "Annual":
+            num_periods = st.selectbox("Lookback Period (Years)", [3, 5, 8, 10], index=1) # Default 5
+            period_type = "annual"
+        else:
+            num_periods = st.selectbox("Lookback Period (Quarters)", [4, 8, 12], index=1) # Default 8
+            period_type = "quarterly"
+
+    # Main Selection
     selected_ticker = st.selectbox("Select Company:", TICKERS, index=TICKERS.index("RELIANCE.NS") if "RELIANCE.NS" in TICKERS else 0)
 
     if st.button("Analyze"):
-        with st.spinner(f"Fetching data for {selected_ticker}..."):
-            df, info = get_company_data(selected_ticker)
+        with st.spinner(f"Fetching {frequency} data for {selected_ticker}..."):
+            df, info = get_company_data(selected_ticker, period_type=period_type, num_periods=num_periods)
 
             if df is None or df.empty:
-                st.error(info)
+                st.error(info if isinstance(info, str) else "No data found.")
                 return
 
             valuation = calculate_valuation(df, info)
@@ -44,52 +56,57 @@ def main():
                 st.markdown(f"### Recommendation: :{color}[{rec}]")
 
             # 3. Main Data Table
-            st.markdown("### Historical Financials & Valuation")
+            st.markdown(f"### {frequency} Financials & Valuation")
 
             # Formatting DataFrame for Display
-            display_df = df[['Year', 'Enterprise Value', 'EBITDA', 'EV/EBITDA (X)', 'Growth in EBITDA (%)']].copy()
+            display_df = df[['Period', 'Enterprise Value', 'EBITDA', 'EV/EBITDA (X)', 'Growth in EBITDA (%)']].copy()
 
             # Add Projected Column
-            # Create a new row for the "Projected" year
-            projected_year_label = "2026 (Est)" # Or "Projected"
-            # If the latest actual year is 2025, projected is 2026.
-            # We can just check the max year in df.
-            latest_year = display_df['Year'].max()
-            projected_year = latest_year + 1
+            # Create a new row for the "Projected" period
+
+            # Determine label for projected period
+            last_period_label = display_df.iloc[0]['Period'] # Newest is top
+            if period_type == "quarterly":
+                # Try to parse "2025 Q2" -> Next is 2025 Q3
+                try:
+                    parts = str(last_period_label).split(' Q')
+                    year = int(parts[0])
+                    qtr = int(parts[1])
+                    if qtr == 4:
+                        next_label = f"{year + 1} Q1 (Proj)"
+                    else:
+                        next_label = f"{year} Q{qtr + 1} (Proj)"
+                except:
+                    next_label = "Next Qtr (Proj)"
+            else:
+                # Annual
+                try:
+                    year = int(last_period_label)
+                    next_label = f"{year + 1} (Proj)"
+                except:
+                    next_label = "Next Year (Proj)"
+
 
             new_row = {
-                'Year': projected_year,
+                'Period': next_label,
                 'Enterprise Value': valuation['Forecasted EV'],
-                'EBITDA': valuation['Expected EBITDA'],
-                'EV/EBITDA (X)': valuation['Current EV/EBITDA'], # Using current/entry multiple
-                'Growth in EBITDA (%)': valuation['Avg 3Y Growth (%)'] # Expected growth
+                'EBITDA': valuation['Expected EBITDA'], # Note: For Quarterly, this is Qtr EBITDA. EV calc handled appropriately.
+                'EV/EBITDA (X)': valuation['Current EV/EBITDA'],
+                'Growth in EBITDA (%)': valuation['Avg Growth (%)']
             }
 
-            # Add to dataframe at the top (since we sort descending)
+            # Add to dataframe at the top
             display_df = pd.concat([pd.DataFrame([new_row]), display_df], ignore_index=True)
 
-            # Transpose to match screenshot (Years as Columns)
-            display_df.set_index('Year', inplace=True)
+            # Transpose to match screenshot (Periods as Columns)
+            display_df.set_index('Period', inplace=True)
             display_df_t = display_df.transpose()
 
             # Styling
-            # 1. Background color for rows (Green/Yellow highlights mentioned in prompt)
-            # The prompt mentioned "highlighted Green/Yellow rows for the final results" (Target Price, Entry Price).
-            # Those are in the Summary section, but let's style the main table rows with alternating colors.
-            # 2. Header Colors (Orange/Blue). Streamlit supports Styler.
-
-            def style_dataframe(styler):
-                # Header styling is tricky in Streamlit, it often overrides it.
-                # We focus on cell styling.
-                styler.format("{:,.2f}")
-                styler.background_gradient(cmap="Blues", axis=None, subset=pd.IndexSlice[:, display_df_t.columns])
-                return styler
-
-            # Custom styling using function
             st.dataframe(
                 display_df_t.style.format("{:,.2f}")
                 .set_properties(**{'background-color': '#f0f2f6', 'color': 'black'})
-                .highlight_max(axis=1, color='#d1e7dd'), # Highlight max values slightly green
+                .highlight_max(axis=1, color='#d1e7dd'),
                 use_container_width=True
             )
 
@@ -99,8 +116,11 @@ def main():
 
             with c1:
                 st.markdown("### Valuation Logic")
-                st.write(f"**Avg 3Y Growth:** {valuation['Avg 3Y Growth (%)']:.2f}%")
+                st.write(f"**Avg Growth:** {valuation['Avg Growth (%)']:.2f}%")
                 st.write(f"**Expected EBITDA:** ₹{valuation['Expected EBITDA']:,.2f}")
+                if valuation.get('Is Quarterly'):
+                     st.caption("(Quarterly Expected. Annualized for EV calc.)")
+
                 st.write(f"**Forecasted EV:** ₹{valuation['Forecasted EV']:,.2f}")
                 st.write(f"**Shares Outstanding:** {info.get('sharesOutstanding'):,}")
                 st.divider()
@@ -111,28 +131,26 @@ def main():
             with c2:
                 st.markdown("### EBITDA Projection")
 
-                # Prepare Chart Data
-                # Historical
-                # Filter out the projected row we just added to display_df for the 'historical' part of chart
-                # Actually, display_df has it. Let's use the original 'df' for history.
-
-                years_hist = df['Year'].tolist()
+                # Chart Data
+                # Use original df for history
+                per_hist = df['Period'].tolist()
                 ebitda_hist = df['EBITDA'].tolist()
 
                 # Projected
-                years_proj = [projected_year]
+                per_proj = [next_label]
                 ebitda_proj = [valuation['Expected EBITDA']]
 
                 # Combine (Reverse hist so it's ascending left to right)
-                years_all = years_hist[::-1] + years_proj
+                # df is Descending (Newest first). So reverse it.
+                per_all = per_hist[::-1] + per_proj
                 ebitda_all = ebitda_hist[::-1] + ebitda_proj
 
-                colors = ['#1f77b4'] * len(years_hist) + ['#2ca02c'] # Blue for hist, Green for proj
+                colors = ['#1f77b4'] * len(per_hist) + ['#2ca02c']
 
                 fig = go.Figure(data=[
-                    go.Bar(x=years_all, y=ebitda_all, marker_color=colors)
+                    go.Bar(x=per_all, y=ebitda_all, marker_color=colors)
                 ])
-                fig.update_layout(title="Historical vs Expected EBITDA", xaxis_title="Year", yaxis_title="EBITDA")
+                fig.update_layout(title="Historical vs Expected EBITDA", xaxis_title="Period", yaxis_title="EBITDA")
                 st.plotly_chart(fig, use_container_width=True)
 
 if __name__ == "__main__":
