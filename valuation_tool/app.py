@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+import yfinance as yf
 from valuation_tool.engine import get_company_data, calculate_valuation, calculate_piotroski_f_score, calculate_technicals
 from valuation_tool.tickers import TICKERS
 
