@@ -1,0 +1,78 @@
+{
+  "Home": {
+    "Hero": {
+      "title": "The Taste of Life",
+      "subtitle": "Traditional Ayurvedic sweets made with purity, love, and legacy recipes. 100% Homemade. No Preservatives.",
+      "shopButton": "Shop Sweets",
+      "storyButton": "Our Story"
+    },
+    "Legacy": {
+      "title": "A Legacy of Purity",
+      "description": "Ayurswaad Foods is not just a sweet shop; it's a revival of grandmother's kitchen. Founded on Deepawali 2025, we bring you the authentic taste of India, prepared by women who understand the science of Ayurveda and the art of taste.",
+      "points": {
+        "women": "Prepared by women with traditional recipes",
+        "ayurveda": "Ayurvedic ingredients for health & immunity",
+        "natural": "Zero preservatives, 100% natural taste"
+      },
+      "learnMore": "Learn More About Us"
+    },
+    "Bestsellers": {
+      "title": "Our Bestsellers",
+      "subtitle": "Handpicked favorites loved by families across India",
+      "viewAll": "View All Products"
+    },
+    "Benefits": {
+      "title": "Why Choose Ayurswaad?",
+      "cards": {
+        "wisdom": {
+          "title": "Ayurvedic Wisdom",
+          "description": "Recipes designed to balance health and taste, using ingredients that nourish the body."
+        },
+        "women": {
+          "title": "Women-Led",
+          "description": "Empowering women artisans who put their heart and soul into every laddu they roll."
+        },
+        "pure": {
+          "title": "Pure Ingredients",
+          "description": "Only the finest Ghee, Jaggery, and Nuts. Absolutely no artificial colors or chemicals."
+        }
+      }
+    },
+    "Festival": {
+      "tag": "Limited Edition",
+      "title": "Festival Specials",
+      "description": "Celebrate the joy of festivals with our exclusive range of traditional sweets, crafted to bring sweetness to your special moments.",
+      "button": "Explore Festival Collection",
+      "products": {
+        "f1": { "name": "Besan Ladoo (Special)", "description": "Rich with pure Ghee and premium nuts, perfect for celebrations." },
+        "f2": { "name": "Kaju Katli Box", "description": "Authentic, pure cashew delight. A must-have for every festival." },
+        "f3": { "name": "Mysore Pak", "description": "Melt-in-your-mouth texture with the perfect sweetness." },
+        "f4": { "name": "Assorted Gift Box", "description": "A curated selection of our finest sweets for your loved ones." }
+      }
+    },
+    "Testimonials": {
+      "title": "What Our Customers Say",
+      "list": {
+        "0": {
+          "content": "The Besan Ladoos remind me exactly of my grandmother's cooking. Pure, authentic, and absolutely delicious! Highly recommended for anyone missing home.",
+          "role": "Bangalore"
+        },
+        "1": {
+          "content": "I ordered the Assorted Gift Box for Diwali, and it was the highlight of our celebration. Every sweet was fresh and tasted premium. The packaging was beautiful too.",
+          "role": "Delhi"
+        },
+        "2": {
+          "content": "Finally, a brand that prioritizes health without compromising on taste. The use of pure ghee is evident in every bite. Ayurswaad is now my go-to for sweets.",
+          "role": "Mumbai"
+        }
+      }
+    },
+    "Newsletter": {
+      "title": "Join Our Sweet Community",
+      "description": "Subscribe to our newsletter to receive updates on new arrivals, exclusive festival offers, and traditional Ayurvedic recipes directly to your inbox.",
+      "placeholder": "Enter your email address",
+      "button": "Subscribe",
+      "privacy": "We respect your privacy. Unsubscribe at any time."
+    }
+  }
+}

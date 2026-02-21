@@ -1,10 +1,11 @@
 'use client';
 
-import Link from 'next/link';
+import { Link } from '@/i18n/routing';
 import { ShoppingBag, Search, User } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { useCart } from '@/context/CartContext';
 import { useEffect, useState } from 'react';
+import { LanguageSwitcher } from '../LanguageSwitcher';
 
 export function Header() {
   const { items } = useCart();
@@ -61,6 +62,7 @@ export function Header() {
                 <span className="sr-only">Account</span>
               </Button>
             </Link>
+            <LanguageSwitcher />
           </nav>
         </div>
       </div>
