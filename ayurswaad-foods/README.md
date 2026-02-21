@@ -20,15 +20,30 @@ Traditional Ayurvedic-inspired sweet brand focused on purity and legacy taste.
 - **Database**: Prisma ORM with SQLite (Local) / PostgreSQL (Supabase ready)
 - **Icons**: Lucide React
 
-## Getting Started
+## Getting Started (Windows)
+
+1.  **Run Automatic Setup**:
+    Double-click `setup.bat`. This will install everything and setup the database.
+
+2.  **Start Development Server**:
+    In the terminal (or Command Prompt), run:
+    ```bash
+    npm run dev
+    ```
+
+3.  **Open Browser**:
+    Navigate to [http://localhost:3000](http://localhost:3000).
+
+## Manual Setup (Mac/Linux)
 
 1.  **Install Dependencies**:
     ```bash
     npm install
     ```
 
-2.  **Database Setup (Local SQLite)**:
+2.  **Database Setup**:
     ```bash
+    # Create .env file with DATABASE_URL="file:./dev.db"
     npx prisma db push
     node prisma/seed.js
     ```
@@ -37,9 +52,6 @@ Traditional Ayurvedic-inspired sweet brand focused on purity and legacy taste.
     ```bash
     npm run dev
     ```
-
-4.  **Open Browser**:
-    Navigate to [http://localhost:3000](http://localhost:3000).
 
 ## Project Structure
 
