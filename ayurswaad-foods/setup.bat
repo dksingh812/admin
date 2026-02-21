@@ -6,24 +6,15 @@ echo ===================================================
 cd /d "%~dp0"
 
 echo.
-echo [1/4] Checking Environment Configuration...
-if not exist .env (
-    echo DATABASE_URL="file:./dev.db" > .env
-    echo .env file created.
-) else (
-    echo .env file already exists.
-)
-
-echo.
-echo [2/4] Installing Dependencies...
+echo [1/3] Installing Dependencies...
 call npm install
 
 echo.
-echo [3/4] Setting up Database...
+echo [2/3] Setting up Database (SQLite)...
 call npx prisma db push
 
 echo.
-echo [4/4] Seeding Initial Data...
+echo [3/3] Seeding Initial Data...
 call node prisma/seed.js
 
 echo.

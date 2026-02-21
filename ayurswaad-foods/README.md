@@ -43,7 +43,7 @@ Traditional Ayurvedic-inspired sweet brand focused on purity and legacy taste.
 
 2.  **Database Setup**:
     ```bash
-    # Create .env file with DATABASE_URL="file:./dev.db"
+    # Note: SQLite database path is hardcoded in prisma/schema.prisma for ease of use.
     npx prisma db push
     node prisma/seed.js
     ```
