@@ -1,24 +1,41 @@
 'use server';
 
 import { db } from './db';
-import { revalidatePath } from 'next/cache';
 
-export async function getProducts() {
+export async function getProducts(category?: string) {
   try {
-    const products = await db.product.findMany();
-    return products;
+    const where = category && category !== 'All' ? { category } : {};
+    return await db.product.findMany({ where });
   } catch (error) {
     console.error('Error fetching products:', error);
     return [];
   }
 }
 
+export async function getOrder(id: string) {
+  try {
+    return await db.order.findUnique({
+      where: { id },
+      include: {
+        user: true,
+        items: {
+          include: {
+            product: true,
+          },
+        },
+      },
+    });
+  } catch (error) {
+    console.error(`Error fetching order ${id}:`, error);
+    return null;
+  }
+}
+
 export async function getProduct(id: string) {
   try {
-    const product = await db.product.findUnique({
+    return await db.product.findUnique({
       where: { id },
     });
-    return product;
   } catch (error) {
     console.error(`Error fetching product ${id}:`, error);
     return null;
@@ -27,21 +44,19 @@ export async function getProduct(id: string) {
 
 export async function getFeaturedProducts() {
   try {
-    // For now, just return first 3 products as featured
-    const products = await db.product.findMany({
-      take: 3,
+    return await db.product.findMany({
+      take: 4,
+      orderBy: { createdAt: 'desc' }, // Latest products
     });
-    return products;
   } catch (error) {
     console.error('Error fetching featured products:', error);
     return [];
   }
 }
 
-// Mock checkout action
 export async function getOrders() {
   try {
-    const orders = await db.order.findMany({
+    return await db.order.findMany({
       include: {
         user: true,
         items: {
@@ -54,36 +69,68 @@ export async function getOrders() {
         createdAt: 'desc',
       },
     });
-    return orders;
   } catch (error) {
     console.error('Error fetching orders:', error);
     return [];
   }
 }
 
-export async function createOrder(cartItems: any[], total: number, userEmail: string = 'guest@example.com') {
+export async function createProduct(data: any) {
   try {
-    // In a real app, we would get the user from the session
-    // For this demo, we'll create a guest user if not exists or use a default one
-    let user = await db.user.findUnique({ where: { email: userEmail } });
+    await db.product.create({
+      data: {
+        name: data.name,
+        description: data.description,
+        ingredients: data.ingredients,
+        benefits: data.benefits,
+        price: parseFloat(data.price),
+        category: data.category,
+        stock: parseInt(data.stock),
+        imageUrl: data.imageUrl,
+      },
+    });
+    revalidatePath('/admin');
+    revalidatePath('/shop');
+    return { success: true };
+  } catch (error) {
+    console.error('Error creating product:', error);
+    return { success: false, error: 'Failed to create product' };
+  }
+}
 
-    if (!user) {
-      user = await db.user.create({
-        data: {
-          email: userEmail,
-          name: 'Guest User',
-          password: 'hashed_password_placeholder', // Should be hashed
-        },
-      });
+export async function createOrder(data: { items: any[], total: number, userId?: string, userEmail?: string }) {
+  try {
+    let userId = data.userId;
+
+    // If no userId, try to find user by email or create a guest user
+    if (!userId && data.userEmail) {
+      const user = await db.user.findUnique({ where: { email: data.userEmail } });
+      if (user) {
+        userId = user.id;
+      } else {
+        const newUser = await db.user.create({
+          data: {
+            email: data.userEmail,
+            name: 'Guest User',
+            password: 'guest_password_placeholder', // Should act as guest
+            role: 'USER',
+          },
+        });
+        userId = newUser.id;
+      }
+    }
+
+    if (!userId) {
+      throw new Error('User identification failed');
     }
 
     const order = await db.order.create({
       data: {
-        userId: user.id,
-        total,
+        userId,
+        total: data.total,
         status: 'PAID', // Simulating successful payment
         items: {
-          create: cartItems.map((item: any) => ({
+          create: data.items.map((item: any) => ({
             productId: item.id,
             quantity: item.quantity,
             price: item.price,
@@ -92,7 +139,6 @@ export async function createOrder(cartItems: any[], total: number, userEmail: st
       },
     });
 
-    revalidatePath('/admin');
     return { success: true, orderId: order.id };
   } catch (error) {
     console.error('Error creating order:', error);

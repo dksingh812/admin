@@ -14,6 +14,7 @@ type CartContextType = {
   items: CartItem[];
   addToCart: (product: any, quantity?: number) => void;
   removeFromCart: (id: string) => void;
+  updateQuantity: (id: string, quantity: number) => void;
   clearCart: () => void;
   total: number;
 };
@@ -26,20 +27,25 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
   // Load cart from localStorage on mount
   useEffect(() => {
-    const savedCart = localStorage.getItem('ayurswaad-cart');
-    if (savedCart) {
-      try {
-        setItems(JSON.parse(savedCart));
-      } catch (e) {
-        console.error('Failed to parse cart from localStorage:', e);
+    if (typeof window !== 'undefined') {
+      const savedCart = localStorage.getItem('ayurswaad-cart');
+      if (savedCart) {
+        try {
+          const parsed = JSON.parse(savedCart);
+          if (Array.isArray(parsed)) {
+            setItems(parsed);
+          }
+        } catch (e) {
+          console.error('Failed to parse cart from localStorage:', e);
+        }
       }
+      setIsInitialized(true);
     }
-    setIsInitialized(true);
   }, []);
 
   // Save cart to localStorage on change
   useEffect(() => {
-    if (isInitialized) {
+    if (isInitialized && typeof window !== 'undefined') {
       localStorage.setItem('ayurswaad-cart', JSON.stringify(items));
     }
   }, [items, isInitialized]);
@@ -66,6 +72,16 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     setItems((prev) => prev.filter((item) => item.id !== id));
   };
 
+  const updateQuantity = (id: string, quantity: number) => {
+    if (quantity < 1) {
+      removeFromCart(id);
+      return;
+    }
+    setItems((prev) =>
+      prev.map((item) => item.id === id ? { ...item, quantity } : item)
+    );
+  };
+
   const clearCart = () => {
     setItems([]);
   };
@@ -73,7 +89,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   const total = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
   return (
-    <CartContext.Provider value={{ items, addToCart, removeFromCart, clearCart, total }}>
+    <CartContext.Provider value={{ items, addToCart, removeFromCart, updateQuantity, clearCart, total }}>
       {children}
     </CartContext.Provider>
   );

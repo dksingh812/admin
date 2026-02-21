@@ -4,6 +4,7 @@ import "../globals.css";
 import { Header } from "@/components/layout/Header";
 import { Footer } from "@/components/layout/Footer";
 import { CartProvider } from "@/context/CartContext";
+import { AuthProvider } from "@/context/AuthContext";
 import { NextIntlClientProvider } from 'next-intl';
 import { getMessages } from 'next-intl/server';
 
@@ -38,13 +39,15 @@ export default async function LocaleLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-screen flex flex-col`}
       >
         <NextIntlClientProvider messages={messages}>
-          <CartProvider>
-            <Header />
-            <main className="flex-1">
-              {children}
-            </main>
-            <Footer />
-          </CartProvider>
+          <AuthProvider>
+            <CartProvider>
+              <Header />
+              <main className="flex-1">
+                {children}
+              </main>
+              <Footer />
+            </CartProvider>
+          </AuthProvider>
         </NextIntlClientProvider>
       </body>
     </html>
