@@ -1,0 +1,58 @@
+@import "tailwindcss";
+
+:root {
+  /* Brand Colors */
+  --saffron: #FF9933;
+  --cream: #FFFDD0;
+  --deep-brown: #3E2723;
+  --gold: #FFD700;
+
+  /* Semantic Colors */
+  --background: #FFFDD0; /* Cream background for warmth */
+  --foreground: #3E2723; /* Deep Brown text */
+  --primary: #FF9933;
+  --primary-foreground: #3E2723;
+  --secondary: #5D4037;
+  --secondary-foreground: #FFFDD0;
+  --card: #FFFFFF;
+  --card-foreground: #3E2723;
+  --muted: #F5F5DC;
+  --muted-foreground: #6D4C41;
+  --border: #8D6E63;
+
+  --radius: 0.5rem;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-saffron: var(--saffron);
+  --color-cream: var(--cream);
+  --color-deep-brown: var(--deep-brown);
+  --color-gold: var(--gold);
+
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif; /* Fallback until fonts load */
+}
+
+/* Custom Utilities */
+.text-brand-saffron { color: var(--saffron); }
+.bg-brand-saffron { background-color: var(--saffron); }
+.text-brand-brown { color: var(--deep-brown); }
+.bg-brand-brown { background-color: var(--deep-brown); }
