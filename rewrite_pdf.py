@@ -1,4 +1,7 @@
+import os
+import re
 
+content = """
 import os
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
@@ -109,7 +112,7 @@ def generate_gst_invoice(invoice_data, client_data, items_data):
         # We will use simple text for now, or just append it.
         service_text = desc
         if period:
-            service_text += f"\n(Period: {period})"
+            service_text += f"\\n(Period: {period})"
 
         row = [
             str(idx + 1),
@@ -210,7 +213,7 @@ def generate_normal_invoice(invoice_data, client_data, items_data):
 
         service_text = desc
         if period:
-            service_text += f"\n(Period: {period})"
+            service_text += f"\\n(Period: {period})"
 
         row = [
             str(idx + 1),
@@ -263,3 +266,8 @@ def generate_normal_invoice(invoice_data, client_data, items_data):
 
     c.save()
     return filepath
+
+"""
+
+with open('Invoicing/pdf_generator.py', 'w') as f:
+    f.write(content)

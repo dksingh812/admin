@@ -30,6 +30,7 @@ def init_db():
         Address TEXT,
         Mobile TEXT,
         Email TEXT,
+        State TEXT,
         Notes TEXT,
         Active INTEGER DEFAULT 1,
         CreatedOn TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -98,6 +99,7 @@ def init_db():
         Amount REAL,
         Discount REAL,
         TotalAmount REAL,
+        Period TEXT,
         FOREIGN KEY(InvoiceID) REFERENCES tblInvoices_Normal(InvoiceID)
     );
 
@@ -116,6 +118,7 @@ def init_db():
         CGST REAL,
         SGST REAL,
         TotalAmount REAL,
+        Period TEXT,
         FOREIGN KEY(InvoiceID) REFERENCES tblInvoices_GST(InvoiceID)
     );
 
@@ -144,10 +147,10 @@ def init_db():
 
 def seed_sac_codes():
     sac_data = [
-        ('998211', 'Legal advisory (representation services concerning criminal law)', 18),
-        ('998212', 'Legal advisory (representation services concerning other fields of law)', 18),
-        ('998213', 'Legal documentation and certification (services concerning patents, copyrights and other intellectual property rights)', 18),
-        ('998214', 'Legal documentation and certification (services concerning other documents)', 18),
+        ('998211', 'Legal advisory', 18),
+        ('998212', 'Legal advisory', 18),
+        ('998213', 'Legal documentation and certification', 18),
+        ('998214', 'Legal documentation and certification', 18),
         ('998215', 'Arbitration and conciliation services', 18),
         ('998216', 'Other legal services n.e.c.', 18),
         ('998221', 'Financial auditing services', 18),
@@ -158,8 +161,8 @@ def seed_sac_codes():
         ('998232', 'Individual tax preparation and planning services', 18),
         ('998311', 'Management consulting management services', 18),
         ('998312', 'Business consulting services', 18),
-        ('998313', 'Information technology (IT) consulting and support services', 18),
-        ('998314', 'Information technology (IT) design and development services', 18),
+        ('998313', 'Information technology (IT)', 18),
+        ('998314', 'Information technology (IT)', 18),
         ('998315', 'Hosting and information technology infrastructure provisioning services', 18),
         ('998316', 'IT infrastructure and network management services', 18),
         ('998319', 'Other information technology services n.e.c', 18),

@@ -1,0 +1,1 @@
+ALTER TABLE tblClients ADD COLUMN State TEXT;

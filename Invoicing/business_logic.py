@@ -20,6 +20,39 @@ def get_financial_year(date_obj=None):
     # Format as 26-27
     return f"{str(start_year)[-2:]}-{str(end_year)[-2:]}"
 
+def calculate_account_balance(db_conn, client_id):
+    """Calculates the account balance: total billings minus total receipts."""
+    cursor = db_conn.cursor()
+    # Total from Normal Invoices
+    cursor.execute("SELECT SUM(TotalAmount) FROM tblInvoices_Normal WHERE ClientID=?", (client_id,))
+    normal_total = cursor.fetchone()[0] or 0.0
+
+    # Total from GST Invoices
+    cursor.execute("SELECT SUM(TotalAmount) FROM tblInvoices_GST WHERE ClientID=?", (client_id,))
+    gst_total = cursor.fetchone()[0] or 0.0
+
+    # Total Receipts/Payments
+    cursor.execute("SELECT SUM(Amount) FROM tblPayments WHERE InvoiceID IN (SELECT InvoiceID FROM tblInvoices_Normal WHERE ClientID=?) OR InvoiceID IN (SELECT InvoiceID FROM tblInvoices_GST WHERE ClientID=?)", (client_id, client_id))
+    total_received = cursor.fetchone()[0] or 0.0
+
+    return (normal_total + gst_total) - total_received
+
+def generate_receipt_number(db_conn):
+    fy = get_financial_year()
+    prefix = f"REC/{fy}/"
+    cursor = db_conn.cursor()
+    cursor.execute("SELECT ReferenceNo FROM tblPayments WHERE ReferenceNo LIKE ? ORDER BY PaymentID DESC LIMIT 1", (f"{prefix}%",))
+    row = cursor.fetchone()
+    if row:
+        last_no = row[0]
+        try:
+            seq = int(last_no.split('/')[-1]) + 1
+        except:
+            seq = 1
+    else:
+        seq = 1
+    return f"{prefix}{seq:03d}"
+
 def generate_invoice_number(db_conn, invoice_type, date_obj=None):
     fy = get_financial_year(date_obj)
 
