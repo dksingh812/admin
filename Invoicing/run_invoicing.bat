@@ -1,6 +1,17 @@
 @echo off
+echo Checking for pip...
+python -m ensurepip --default-pip >nul 2>&1
+if %errorlevel% neq 0 (
+    echo "ensurepip" failed, attempting to download get-pip.py...
+    curl -sS https://bootstrap.pypa.io/get-pip.py -o get-pip.py
+    python get-pip.py
+    del get-pip.py
+)
+
 echo Installing required dependencies...
 python -m pip install reportlab pywhatsapp pyautogui
+
+echo.
 echo Starting Parigantavya Invoicing Application...
 cd /d "%~dp0"
 python main.py
