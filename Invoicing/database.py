@@ -190,7 +190,7 @@ def init_db():
         CreatedOn TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(ClientID) REFERENCES tblClients(ClientID)
     );
-    '''
+    ''')
 
 
     conn.commit()
