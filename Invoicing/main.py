@@ -24,14 +24,23 @@ class InvoicingApp(tk.Tk):
         self.tab_invoice = ttk.Frame(self.notebook)
         self.tab_clients = ttk.Frame(self.notebook)
         self.tab_receipts = ttk.Frame(self.notebook)
+        self.tab_cash_bank = ttk.Frame(self.notebook)
+        self.tab_notes = ttk.Frame(self.notebook)
+        self.tab_recycle = ttk.Frame(self.notebook)
 
         self.notebook.add(self.tab_invoice, text="Create Invoice")
         self.notebook.add(self.tab_clients, text="Manage Clients")
         self.notebook.add(self.tab_receipts, text="Invoice Tracking & Receipts")
+        self.notebook.add(self.tab_cash_bank, text="Cash Book & Bank Book")
+        self.notebook.add(self.tab_notes, text="Credit/Debit Notes (GST)")
+        self.notebook.add(self.tab_recycle, text="Recycle Bin")
 
         self.setup_clients_tab()
         self.setup_invoice_tab()
         self.setup_receipts_tab()
+        self.setup_cash_bank_tab()
+        self.setup_notes_tab()
+        self.setup_recycle_tab()
 
 
 
