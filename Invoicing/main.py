@@ -548,6 +548,364 @@ class InvoicingApp(tk.Tk):
         tab_text = event.widget.tab(selected_tab, "text")
         if tab_text == "Invoice Tracking & Receipts":
             self.refresh_invoices_list()
+        elif tab_text == "Cash Book & Bank Book":
+            self.refresh_cash_bank_lists()
+        elif tab_text == "Recycle Bin":
+            self.refresh_recycle_list()
+
+    def setup_cash_bank_tab(self):
+        # Notebook for Cash vs Bank
+        self.nb_cb = ttk.Notebook(self.tab_cash_bank)
+        self.nb_cb.pack(fill='both', expand=True, padx=10, pady=10)
+
+        self.tab_cash = ttk.Frame(self.nb_cb)
+        self.tab_bank = ttk.Frame(self.nb_cb)
+
+        self.nb_cb.add(self.tab_cash, text="Cash Book")
+        self.nb_cb.add(self.tab_bank, text="Bank Book")
+
+        # Setup Cash Book
+        self.setup_book_ui(self.tab_cash, 'Cash')
+
+        # Setup Bank Book
+        self.setup_book_ui(self.tab_bank, 'Bank')
+
+    def setup_book_ui(self, parent_frame, book_type):
+        # Entry Frame
+        frame_entry = ttk.LabelFrame(parent_frame, text=f"Add Manual Entry to {book_type} Book")
+        frame_entry.pack(fill='x', padx=10, pady=5)
+
+        ttk.Label(frame_entry, text="Date:").grid(row=0, column=0, padx=5, pady=5)
+        ent_date = ttk.Entry(frame_entry, width=12)
+        from datetime import datetime
+        ent_date.insert(0, datetime.now().strftime('%d-%m-%Y'))
+        ent_date.grid(row=0, column=1, padx=5, pady=5)
+
+        ttk.Label(frame_entry, text="Particulars:").grid(row=0, column=2, padx=5, pady=5)
+        ent_part = ttk.Entry(frame_entry, width=40)
+        ent_part.grid(row=0, column=3, padx=5, pady=5)
+
+        ttk.Label(frame_entry, text="Receipt (Rs.):").grid(row=0, column=4, padx=5, pady=5)
+        ent_rec = ttk.Entry(frame_entry, width=10)
+        ent_rec.grid(row=0, column=5, padx=5, pady=5)
+
+        ttk.Label(frame_entry, text="Payment (Rs.):").grid(row=0, column=6, padx=5, pady=5)
+        ent_pay = ttk.Entry(frame_entry, width=10)
+        ent_pay.grid(row=0, column=7, padx=5, pady=5)
+
+        ttk.Button(frame_entry, text="Add", command=lambda: self.add_book_entry(book_type, ent_date, ent_part, ent_rec, ent_pay)).grid(row=0, column=8, padx=10, pady=5)
+        ttk.Button(frame_entry, text="Export Excel", command=lambda: self.export_book(book_type)).grid(row=0, column=9, padx=10, pady=5)
+
+        # List Frame
+        columns = ('TxnID', 'Date', 'Particulars', 'Receipt', 'Payment', 'Balance')
+        tree = ttk.Treeview(parent_frame, columns=columns, show='headings')
+        for col in columns:
+            tree.heading(col, text=col)
+            if col in ('Receipt', 'Payment', 'Balance'):
+                tree.column(col, anchor='e', width=100)
+            elif col == 'TxnID':
+                tree.column(col, width=50, anchor='center')
+            else:
+                tree.column(col, width=150)
+
+        scrollbar = ttk.Scrollbar(parent_frame, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side="right", fill="y")
+        tree.pack(fill='both', expand=True, padx=10, pady=5)
+
+        if book_type == 'Cash':
+            self.tree_cash = tree
+        else:
+            self.tree_bank = tree
+
+    def add_book_entry(self, book_type, w_date, w_part, w_rec, w_pay):
+        date_str = w_date.get().strip()
+        part = w_part.get().strip()
+        rec_str = w_rec.get().strip()
+        pay_str = w_pay.get().strip()
+
+        if not part:
+            messagebox.showerror("Error", "Particulars cannot be empty.")
+            return
+
+        try:
+            rec = float(rec_str) if rec_str else 0.0
+            pay = float(pay_str) if pay_str else 0.0
+        except:
+            messagebox.showerror("Error", "Invalid numeric amounts.")
+            return
+
+        conn = get_connection()
+        c = conn.cursor()
+        table = 'tblCashBook' if book_type == 'Cash' else 'tblBankBook'
+        c.execute(f"INSERT INTO {table} (TxnDate, Particulars, Receipt, Payment) VALUES (?, ?, ?, ?)", (date_str, part, rec, pay))
+        conn.commit()
+        conn.close()
+
+        w_part.delete(0, tk.END)
+        w_rec.delete(0, tk.END)
+        w_pay.delete(0, tk.END)
+        self.refresh_cash_bank_lists()
+
+    def refresh_cash_bank_lists(self):
+        for tree, table in [(self.tree_cash, 'tblCashBook'), (self.tree_bank, 'tblBankBook')]:
+            for item in tree.get_children():
+                tree.delete(item)
+
+            conn = get_connection()
+            c = conn.cursor()
+            c.execute(f"SELECT TxnID, TxnDate, Particulars, Receipt, Payment FROM {table} WHERE IsDeleted=0 ORDER BY TxnID ASC")
+            rows = c.fetchall()
+            conn.close()
+
+            running_balance = 0.0
+            for row in rows:
+                tid, d, p, r, pay = row
+                running_balance += r - pay
+                tree.insert('', tk.END, values=(tid, d, p, f"{r:.2f}", f"{pay:.2f}", f"{running_balance:.2f}"))
+
+    def export_book(self, book_type):
+        try:
+            import pandas as pd
+        except ImportError:
+            messagebox.showerror("Error", "pandas is required for Excel export.")
+            return
+
+        tree = self.tree_cash if book_type == 'Cash' else self.tree_bank
+        data = []
+        for child in tree.get_children():
+            data.append(tree.item(child)['values'])
+
+        if not data:
+            messagebox.showinfo("Info", "No data to export.")
+            return
+
+        from tkinter import filedialog
+        path = filedialog.asksaveasfilename(defaultextension=".xlsx", filetypes=[("Excel files", "*.xlsx")], title=f"Save {book_type} Book")
+        if path:
+            df = pd.DataFrame(data, columns=['TxnID', 'Date', 'Particulars', 'Receipt', 'Payment', 'Balance'])
+            df.to_excel(path, index=False)
+            messagebox.showinfo("Success", f"{book_type} Book exported successfully.")
+
+    def setup_notes_tab(self):
+        frame_top = ttk.LabelFrame(self.tab_notes, text="Issue Credit/Debit Note")
+        frame_top.pack(fill='x', padx=10, pady=10)
+
+        ttk.Label(frame_top, text="Note Type:").grid(row=0, column=0, padx=5, pady=5)
+        self.combo_note_type = ttk.Combobox(frame_top, values=["Credit Note", "Debit Note"], width=15, state='readonly')
+        self.combo_note_type.set("Credit Note")
+        self.combo_note_type.grid(row=0, column=1, padx=5, pady=5)
+
+        ttk.Label(frame_top, text="Against GST Invoice No:").grid(row=0, column=2, padx=5, pady=5)
+        self.entry_note_inv = ttk.Entry(frame_top, width=20)
+        self.entry_note_inv.grid(row=0, column=3, padx=5, pady=5)
+
+        ttk.Label(frame_top, text="Date:").grid(row=0, column=4, padx=5, pady=5)
+        self.entry_note_date = ttk.Entry(frame_top, width=12)
+        from datetime import datetime
+        self.entry_note_date.insert(0, datetime.now().strftime('%d-%m-%Y'))
+        self.entry_note_date.grid(row=0, column=5, padx=5, pady=5)
+
+        ttk.Label(frame_top, text="Amount (Rs.):").grid(row=1, column=0, padx=5, pady=5)
+        self.entry_note_amt = ttk.Entry(frame_top, width=15)
+        self.entry_note_amt.grid(row=1, column=1, padx=5, pady=5)
+
+        ttk.Label(frame_top, text="Reason:").grid(row=1, column=2, padx=5, pady=5)
+        self.entry_note_reason = ttk.Entry(frame_top, width=40)
+        self.entry_note_reason.grid(row=1, column=3, columnspan=3, padx=5, pady=5, sticky='w')
+
+        ttk.Button(frame_top, text="Generate Note", command=self.generate_note).grid(row=2, column=0, columnspan=6, pady=10)
+
+    def generate_note(self):
+        note_type = self.combo_note_type.get()
+        inv_no = self.entry_note_inv.get().strip()
+        date_str = self.entry_note_date.get().strip()
+        amt_str = self.entry_note_amt.get().strip()
+        reason = self.entry_note_reason.get().strip()
+
+        if not all([inv_no, date_str, amt_str, reason]):
+            messagebox.showerror("Error", "All fields are required.")
+            return
+
+        try:
+            amt = float(amt_str)
+        except:
+            messagebox.showerror("Error", "Invalid amount.")
+            return
+
+        conn = get_connection()
+        c = conn.cursor()
+
+        # Verify GST invoice exists
+        c.execute("SELECT ClientID, TotalAmount FROM tblInvoices_GST WHERE InvoiceNo=?", (inv_no,))
+        row = c.fetchone()
+        if not row:
+            conn.close()
+            messagebox.showerror("Error", "GST Invoice not found.")
+            return
+
+        client_id = row[0]
+
+        # Get Client Info
+        c.execute("SELECT ClientName, Address, PAN, GSTIN, State FROM tblClients WHERE ClientID=?", (client_id,))
+        c_row = c.fetchone()
+        if not c_row:
+            conn.close()
+            return
+
+        client_data = {
+            'ClientName': c_row[0],
+            'Address': c_row[1],
+            'PAN': c_row[2],
+            'GSTIN': c_row[3],
+            'State': c_row[4]
+        }
+
+        # Generate Note No
+        from business_logic import get_financial_year
+        fy = get_financial_year()
+        prefix = "CN" if note_type == "Credit Note" else "DN"
+        c.execute(f"SELECT NoteNo FROM tblCreditDebitNotes WHERE NoteNo LIKE '{prefix}/{fy}/%' ORDER BY NoteID DESC LIMIT 1")
+        last_note = c.fetchone()
+        if last_note:
+            try:
+                seq = int(last_note[0].split('/')[-1]) + 1
+            except:
+                seq = 1
+        else:
+            seq = 1
+
+        note_no = f"{prefix}/{fy}/{seq:03d}"
+
+        c.execute('''
+            INSERT INTO tblCreditDebitNotes (NoteNo, NoteType, InvoiceNo, NoteDate, ClientID, Amount, Reason)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (note_no, note_type, inv_no, date_str, client_id, amt, reason))
+
+        # Adjust account balance implicitly via negative/positive payment if required?
+        # Actually user asked for notes just to issue them.
+        # We can record it as a pseudo-payment to adjust balance automatically.
+        if note_type == 'Credit Note':
+            # Credit note reduces client's due -> acts like a Receipt
+            c.execute("INSERT INTO tblPayments (InvoiceType, InvoiceID, PaymentDate, Amount, PaymentMode, ReferenceNo) SELECT 'GST', InvoiceID, ?, ?, ?, ? FROM tblInvoices_GST WHERE InvoiceNo=?", (date_str, amt, 'Credit Note Adjustment', note_no, inv_no))
+        else:
+            # Debit note increases due -> acts like negative Receipt
+            c.execute("INSERT INTO tblPayments (InvoiceType, InvoiceID, PaymentDate, Amount, PaymentMode, ReferenceNo) SELECT 'GST', InvoiceID, ?, ?, ?, ? FROM tblInvoices_GST WHERE InvoiceNo=?", (date_str, -amt, 'Debit Note Adjustment', note_no, inv_no))
+
+        conn.commit()
+
+        # Generate PDF
+        note_data = {
+            'NoteNo': note_no,
+            'NoteType': note_type,
+            'Date': date_str,
+            'InvoiceNo': inv_no,
+            'Amount': amt,
+            'Reason': reason
+        }
+
+        from pdf_generator import generate_note_pdf
+        pdf_path = generate_note_pdf(note_data, client_data)
+
+        conn.close()
+
+        messagebox.showinfo("Success", f"{note_type} generated at:\n{pdf_path}")
+        self.entry_note_amt.delete(0, tk.END)
+        self.entry_note_reason.delete(0, tk.END)
+
+    def setup_recycle_tab(self):
+        frame = ttk.LabelFrame(self.tab_recycle, text="Soft Deleted Items (>7 Days will be purged automatically)")
+        frame.pack(fill='both', expand=True, padx=10, pady=10)
+
+        columns = ('Type', 'ID/No', 'Name/Desc', 'Deleted On')
+        self.tree_recycle = ttk.Treeview(frame, columns=columns, show='headings')
+        for col in columns:
+            self.tree_recycle.heading(col, text=col)
+            self.tree_recycle.column(col, width=150)
+
+        scrollbar = ttk.Scrollbar(frame, orient="vertical", command=self.tree_recycle.yview)
+        self.tree_recycle.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side="right", fill="y")
+        self.tree_recycle.pack(fill='both', expand=True)
+
+        btn_frame = ttk.Frame(self.tab_recycle)
+        btn_frame.pack(fill='x', padx=10, pady=5)
+
+        ttk.Button(btn_frame, text="Restore Selected", command=self.restore_recycled).pack(side='left', padx=5)
+        ttk.Button(btn_frame, text="Permanent Delete Selected", command=self.purge_recycled).pack(side='left', padx=5)
+
+    def refresh_recycle_list(self):
+        for item in self.tree_recycle.get_children():
+            self.tree_recycle.delete(item)
+
+        conn = get_connection()
+        c = conn.cursor()
+
+        # Auto Purge > 7 days logic
+        from datetime import datetime, timedelta
+        limit_date = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
+
+        c.execute("DELETE FROM tblClients WHERE IsDeleted=1 AND DeletedOn < ?", (limit_date,))
+        c.execute("DELETE FROM tblInvoices_Normal WHERE IsDeleted=1 AND DeletedOn < ?", (limit_date,))
+        c.execute("DELETE FROM tblInvoices_GST WHERE IsDeleted=1 AND DeletedOn < ?", (limit_date,))
+        conn.commit()
+
+        # Load clients
+        c.execute("SELECT 'Client', PAN, ClientName, DeletedOn FROM tblClients WHERE IsDeleted=1")
+        for r in c.fetchall():
+            self.tree_recycle.insert('', tk.END, values=r)
+
+        # Load Invoices Normal
+        c.execute("SELECT 'Invoice Normal', InvoiceNo, TotalAmount, DeletedOn FROM tblInvoices_Normal WHERE IsDeleted=1")
+        for r in c.fetchall():
+            self.tree_recycle.insert('', tk.END, values=r)
+
+        # Load Invoices GST
+        c.execute("SELECT 'Invoice GST', InvoiceNo, TotalAmount, DeletedOn FROM tblInvoices_GST WHERE IsDeleted=1")
+        for r in c.fetchall():
+            self.tree_recycle.insert('', tk.END, values=r)
+
+        conn.close()
+
+    def restore_recycled(self):
+        sel = self.tree_recycle.selection()
+        if not sel: return
+        item = self.tree_recycle.item(sel[0])['values']
+        item_type, item_id = item[0], item[1]
+
+        conn = get_connection()
+        c = conn.cursor()
+        if item_type == 'Client':
+            c.execute("UPDATE tblClients SET IsDeleted=0, DeletedOn=NULL WHERE PAN=?", (item_id,))
+        elif item_type == 'Invoice Normal':
+            c.execute("UPDATE tblInvoices_Normal SET IsDeleted=0, DeletedOn=NULL WHERE InvoiceNo=?", (item_id,))
+        elif item_type == 'Invoice GST':
+            c.execute("UPDATE tblInvoices_GST SET IsDeleted=0, DeletedOn=NULL WHERE InvoiceNo=?", (item_id,))
+
+        conn.commit()
+        conn.close()
+        self.refresh_recycle_list()
+
+    def purge_recycled(self):
+        sel = self.tree_recycle.selection()
+        if not sel: return
+        item = self.tree_recycle.item(sel[0])['values']
+        item_type, item_id = item[0], item[1]
+
+        if not messagebox.askyesno("Confirm", "Are you sure? This cannot be undone."): return
+
+        conn = get_connection()
+        c = conn.cursor()
+        if item_type == 'Client':
+            c.execute("DELETE FROM tblClients WHERE PAN=?", (item_id,))
+        elif item_type == 'Invoice Normal':
+            c.execute("DELETE FROM tblInvoices_Normal WHERE InvoiceNo=?", (item_id,))
+        elif item_type == 'Invoice GST':
+            c.execute("DELETE FROM tblInvoices_GST WHERE InvoiceNo=?", (item_id,))
+
+        conn.commit()
+        conn.close()
+        self.refresh_recycle_list()
 
     def refresh_invoices_list(self):
         for item in self.tree_invoices.get_children():
