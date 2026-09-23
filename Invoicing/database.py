@@ -33,6 +33,9 @@ def init_db():
         State TEXT,
         Notes TEXT,
         Active INTEGER DEFAULT 1,
+        OpeningBalance REAL DEFAULT 0,
+        IsDeleted INTEGER DEFAULT 0,
+        DeletedOn TIMESTAMP,
         CreatedOn TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UpdatedOn TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
@@ -57,6 +60,8 @@ def init_db():
         DocPath TEXT,
         PDFPath TEXT,
         CreatedOn TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        IsDeleted INTEGER DEFAULT 0,
+        DeletedOn TIMESTAMP,
         FOREIGN KEY(ClientID) REFERENCES tblClients(ClientID)
     );
 
@@ -86,6 +91,8 @@ def init_db():
         DocPath TEXT,
         PDFPath TEXT,
         CreatedOn TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        IsDeleted INTEGER DEFAULT 0,
+        DeletedOn TIMESTAMP,
         FOREIGN KEY(ClientID) REFERENCES tblClients(ClientID)
     );
 
@@ -138,9 +145,53 @@ def init_db():
         PaymentMode TEXT,
         ReferenceNo TEXT,
         Notes TEXT,
+        CreatedOn TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        IsDeleted INTEGER DEFAULT 0,
+        DeletedOn TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS tblCashBook (
+        CashID INTEGER PRIMARY KEY AUTOINCREMENT,
+        Date TEXT,
+        Particulars TEXT,
+        ReceiptAmount REAL DEFAULT 0,
+        PaymentAmount REAL DEFAULT 0,
+        Balance REAL,
+        Notes TEXT,
         CreatedOn TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
-    ''')
+
+    CREATE TABLE IF NOT EXISTS tblBankBook (
+        BankID INTEGER PRIMARY KEY AUTOINCREMENT,
+        Date TEXT,
+        Particulars TEXT,
+        ReceiptAmount REAL DEFAULT 0,
+        PaymentAmount REAL DEFAULT 0,
+        Balance REAL,
+        Notes TEXT,
+        CreatedOn TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS tblCreditDebitNotes (
+        NoteID INTEGER PRIMARY KEY AUTOINCREMENT,
+        NoteType TEXT,
+        NoteNo TEXT UNIQUE,
+        NoteDate TEXT,
+        OriginalInvoiceNo TEXT,
+        ClientID INTEGER,
+        Reason TEXT,
+        Amount REAL,
+        IGST REAL DEFAULT 0,
+        CGST REAL DEFAULT 0,
+        SGST REAL DEFAULT 0,
+        TotalAmount REAL,
+        DocPath TEXT,
+        PDFPath TEXT,
+        CreatedOn TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(ClientID) REFERENCES tblClients(ClientID)
+    );
+    '''
+
 
     conn.commit()
     conn.close()

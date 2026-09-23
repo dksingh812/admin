@@ -9,7 +9,7 @@ if %errorlevel% neq 0 (
 )
 
 echo Installing required dependencies...
-python -m pip install reportlab pywhatsapp pyautogui
+python -m pip install reportlab pywhatsapp pyautogui num2words
 
 echo.
 echo Starting Parigantavya Invoicing Application...

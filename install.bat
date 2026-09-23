@@ -26,6 +26,7 @@ echo.
 echo [2/2] Installing dependencies from requirements.txt...
 if exist requirements.txt (
     pip install -r requirements.txt
+pip install num2words
 ) else (
     echo.
     echo ERROR: requirements.txt not found in this folder!

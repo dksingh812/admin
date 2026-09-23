@@ -21,21 +21,36 @@ def get_financial_year(date_obj=None):
     return f"{str(start_year)[-2:]}-{str(end_year)[-2:]}"
 
 def calculate_account_balance(db_conn, client_id):
-    """Calculates the account balance: total billings minus total receipts."""
+    """Calculates the account balance: opening balance + total billings minus total receipts."""
     cursor = db_conn.cursor()
-    # Total from Normal Invoices
-    cursor.execute("SELECT SUM(TotalAmount) FROM tblInvoices_Normal WHERE ClientID=?", (client_id,))
+
+    # Get Opening Balance
+    cursor.execute("SELECT OpeningBalance FROM tblClients WHERE ClientID=?", (client_id,))
+    row = cursor.fetchone()
+    opening_balance = row[0] if row and row[0] is not None else 0.0
+
+    # Total from Normal Invoices (not deleted)
+    cursor.execute("SELECT SUM(TotalAmount) FROM tblInvoices_Normal WHERE ClientID=? AND IsDeleted=0", (client_id,))
     normal_total = cursor.fetchone()[0] or 0.0
 
-    # Total from GST Invoices
-    cursor.execute("SELECT SUM(TotalAmount) FROM tblInvoices_GST WHERE ClientID=?", (client_id,))
+    # Total from GST Invoices (not deleted)
+    cursor.execute("SELECT SUM(TotalAmount) FROM tblInvoices_GST WHERE ClientID=? AND IsDeleted=0", (client_id,))
     gst_total = cursor.fetchone()[0] or 0.0
 
-    # Total Receipts/Payments
-    cursor.execute("SELECT SUM(Amount) FROM tblPayments WHERE InvoiceID IN (SELECT InvoiceID FROM tblInvoices_Normal WHERE ClientID=?) OR InvoiceID IN (SELECT InvoiceID FROM tblInvoices_GST WHERE ClientID=?)", (client_id, client_id))
+    # Total Receipts/Payments (not deleted and mapped safely using InvoiceType to avoid cross-contamination)
+    cursor.execute("""
+        SELECT SUM(p.Amount)
+        FROM tblPayments p
+        WHERE p.IsDeleted = 0
+        AND (
+            (p.InvoiceType = 'Normal' AND p.InvoiceID IN (SELECT InvoiceID FROM tblInvoices_Normal WHERE ClientID=?))
+            OR
+            (p.InvoiceType = 'GST' AND p.InvoiceID IN (SELECT InvoiceID FROM tblInvoices_GST WHERE ClientID=?))
+        )
+    """, (client_id, client_id))
     total_received = cursor.fetchone()[0] or 0.0
 
-    return (normal_total + gst_total) - total_received
+    return opening_balance + (normal_total + gst_total) - total_received
 
 def generate_receipt_number(db_conn):
     fy = get_financial_year()

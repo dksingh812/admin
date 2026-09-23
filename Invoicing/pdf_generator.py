@@ -7,7 +7,7 @@ from reportlab.lib.units import inch, cm
 from reportlab.platypus import Table, TableStyle
 
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), 'Output', 'PDF')
-ASSETS_DIR = '/tmp/file_attachments/' # Where the images are
+ASSETS_DIR = os.path.join(os.path.dirname(__file__), 'assets') # Where the images are
 
 if not os.path.exists(OUTPUT_DIR):
     os.makedirs(OUTPUT_DIR)
@@ -25,7 +25,12 @@ def number_to_words(n):
         return f"Rs. {words} Only"
     except ImportError:
         # Fallback if num2words not installed
-        return f"Rs. [Amount in Words for {int(n)}] Only"
+        try:
+            from num2words import num2words
+            words = num2words(int(n), lang="en_IN").replace(",", "").title().replace(" And ", " ")
+            return f"Rs. {words} Only"
+        except ImportError:
+            return f"Rs. [Amount in Words for {int(n)}] Only"
 
 def get_asset_path(filename):
     path = os.path.join(ASSETS_DIR, filename)
