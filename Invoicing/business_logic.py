@@ -105,11 +105,19 @@ def send_whatsapp_message(mobile_number, client_name, invoice_no, total_amount):
         mobile_number = f"91{mobile_number}"
 
     message = (
-        f"Dear {client_name},\n\n"
-        f"Your invoice ({invoice_no}) for the amount of Rs. {total_amount:.2f} has been generated.\n"
+        f"Dear *{client_name}*,\n\n"
+        f"Your invoice (*{invoice_no}*) for the amount of *Rs. {total_amount:.2f}* has been generated. "
         f"Please find the attached invoice for your reference.\n\n"
-        f"Thank you for your business.\n"
-        f"Parigantavya Consultants"
+        f"Please pay to\n"
+        f"*Deepak Kumar Singh*\n"
+        f"*State Bank of India*\n"
+        f"A/c No.- *30919594941*\n"
+        f"IFSC- *SBIN0003879*\n"
+        f"Branch- *High Court Allahabad*\n"
+        f"UPI- *9990013555@upi*\n"
+        f"MMID- *9002500*\n"
+        f"Mobile- *9990013555*\n\n"
+        f"Thank you for your business."
     )
 
     encoded_message = urllib.parse.quote(message)
@@ -121,4 +129,26 @@ def send_whatsapp_message(mobile_number, client_name, invoice_no, total_amount):
     except Exception:
         webbrowser.open(f"https://web.whatsapp.com/send?phone={mobile_number}&text={encoded_message}")
 
+    return True
+
+def send_whatsapp_receipt(mobile_number, client_name, receipt_no, invoice_no, amt_received, new_balance):
+    if not mobile_number:
+        return False
+
+    mobile_number = str(mobile_number).strip().replace(' ', '').replace('+', '')
+    if len(mobile_number) == 10:
+        mobile_number = f"91{mobile_number}"
+
+    message = (
+        f"Dear *{client_name}*,\n\n"
+        f"We have successfully received your payment of *Rs. {amt_received:.2f}* against invoice *{invoice_no}*.\n"
+        f"Receipt No: *{receipt_no}*\n"
+        f"Your updated pending balance is *Rs. {new_balance:.2f}*.\n\n"
+        f"Thank you for your prompt payment.\n"
+        f"Parigantavya Consultants"
+    )
+
+    encoded_message = urllib.parse.quote(message)
+    url = f"whatsapp://send?phone={mobile_number}&text={encoded_message}"
+    webbrowser.open(url)
     return True

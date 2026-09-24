@@ -104,6 +104,10 @@ class InvoicingApp(tk.Tk):
         self.combo_client_state = ttk.Combobox(frame_top, values=states, width=38)
         self.combo_client_state.grid(row=3, column=1, padx=5, pady=5)
 
+        ttk.Label(frame_top, text="Opening Balance:").grid(row=3, column=2, padx=5, pady=5, sticky='w')
+        self.entry_client_opening_bal = ttk.Entry(frame_top, width=20)
+        self.entry_client_opening_bal.grid(row=3, column=3, padx=5, pady=5)
+
         btn_frame = ttk.Frame(frame_top)
         btn_frame.grid(row=4, column=0, columnspan=4, pady=10)
         ttk.Button(btn_frame, text="Add/Save Client", command=self.save_client).pack(side='left', padx=5)
@@ -119,11 +123,22 @@ class InvoicingApp(tk.Tk):
         for col in columns:
             self.tree_clients.heading(col, text=col)
             self.tree_clients.column(col, width=150)
-        self.tree_clients.column('PAN/ID', width=100)
+        self.tree_clients.column('PAN/ID', width=100, anchor='center')
+        self.tree_clients.column('Account Balance', width=150, anchor='e')
         self.tree_clients.pack(fill='both', expand=True)
         self.tree_clients.bind('<<TreeviewSelect>>', self.on_client_select)
 
         self.refresh_clients_list()
+
+    def clear_client_form(self):
+        self.entry_client_name.delete(0, tk.END)
+        self.entry_client_pan.delete(0, tk.END)
+        self.entry_client_gst.delete(0, tk.END)
+        self.entry_client_mobile.delete(0, tk.END)
+        self.entry_client_email.delete(0, tk.END)
+        self.entry_client_address.delete(0, tk.END)
+        self.combo_client_state.set('')
+        self.entry_client_opening_bal.delete(0, tk.END)
 
     def on_client_select(self, event):
         selected = self.tree_clients.selection()
@@ -133,24 +148,20 @@ class InvoicingApp(tk.Tk):
 
         conn = get_connection()
         c = conn.cursor()
-        c.execute("SELECT ClientName, PAN, GSTIN, Mobile, Email, Address, State FROM tblClients WHERE PAN=?", (pan,))
+        c.execute("SELECT ClientName, PAN, GSTIN, Mobile, Email, Address, State, OpeningBalance FROM tblClients WHERE PAN=?", (pan,))
         row = c.fetchone()
         conn.close()
 
         if row:
-            self.entry_client_name.delete(0, tk.END)
+            self.clear_client_form()
             self.entry_client_name.insert(0, row[0] or '')
-            self.entry_client_pan.delete(0, tk.END)
             self.entry_client_pan.insert(0, row[1] or '')
-            self.entry_client_gst.delete(0, tk.END)
             self.entry_client_gst.insert(0, row[2] or '')
-            self.entry_client_mobile.delete(0, tk.END)
             self.entry_client_mobile.insert(0, row[3] or '')
-            self.entry_client_email.delete(0, tk.END)
             self.entry_client_email.insert(0, row[4] or '')
-            self.entry_client_address.delete(0, tk.END)
             self.entry_client_address.insert(0, row[5] or '')
             self.combo_client_state.set(row[6] or '')
+            self.entry_client_opening_bal.insert(0, str(row[7] or ''))
 
     def save_client(self):
         name = self.entry_client_name.get().strip()
@@ -163,9 +174,11 @@ class InvoicingApp(tk.Tk):
         conn = get_connection()
         c = conn.cursor()
         try:
+            ob_val = self.entry_client_opening_bal.get().strip()
+            ob = float(ob_val) if ob_val else 0.0
             c.execute("""
-                INSERT INTO tblClients (ClientName, PAN, GSTIN, Mobile, Email, Address, State)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO tblClients (ClientName, PAN, GSTIN, Mobile, Email, Address, State, OpeningBalance)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 name,
                 pan,
@@ -173,7 +186,8 @@ class InvoicingApp(tk.Tk):
                 self.entry_client_mobile.get().strip(),
                 self.entry_client_email.get().strip(),
                 self.entry_client_address.get().strip(),
-                self.combo_client_state.get().strip()
+                self.combo_client_state.get().strip(),
+                ob
             ))
             conn.commit()
             messagebox.showinfo("Success", "Client saved successfully.")
@@ -226,7 +240,7 @@ class InvoicingApp(tk.Tk):
 
         conn = get_connection()
         c = conn.cursor()
-        c.execute("DELETE FROM tblClients WHERE PAN=?", (pan,))
+        c.execute("UPDATE tblClients SET IsDeleted=1, DeletedOn=CURRENT_TIMESTAMP WHERE PAN=?", (pan,))
         conn.commit()
         conn.close()
 
@@ -234,15 +248,6 @@ class InvoicingApp(tk.Tk):
         self.refresh_clients_list()
         self.clear_client_form()
         self.refresh_client_dropdown()
-
-    def clear_client_form(self):
-        self.entry_client_name.delete(0, tk.END)
-        self.entry_client_pan.delete(0, tk.END)
-        self.entry_client_gst.delete(0, tk.END)
-        self.entry_client_mobile.delete(0, tk.END)
-        self.entry_client_email.delete(0, tk.END)
-        self.entry_client_address.delete(0, tk.END)
-        self.combo_client_state.set('')
 
     def refresh_clients_list(self):
         for item in self.tree_clients.get_children():
@@ -322,6 +327,9 @@ class InvoicingApp(tk.Tk):
         ttk.Button(frame_actions, text="Generate Invoice", command=self.generate_invoice).pack(side='right', padx=5)
 
     def search_clients(self, event):
+        if event.keysym in ('Up', 'Down', 'Left', 'Right', 'Return'):
+            return
+
         value = event.widget.get()
         if value == '':
             self.combo_client['values'] = list(self.client_map.keys())
@@ -332,12 +340,15 @@ class InvoicingApp(tk.Tk):
                     data.append(item)
             self.combo_client['values'] = data
 
+        if hasattr(self, 'combo_client'):
+            self.combo_client.event_generate('<Down>')
+
     def on_service_selected(self, row_idx):
         row = self.service_rows[row_idx]
         selection = row['desc'].get()
         if " - " in selection:
             name, code = selection.rsplit(" - ", 1)
-            row['desc'].set(name)
+            row['desc'].set(selection)
             row['sac'].delete(0, tk.END)
             row['sac'].insert(0, code)
 
@@ -472,29 +483,32 @@ class InvoicingApp(tk.Tk):
                 invoice_data['SGST'] = sgst_total
                 invoice_data['IGST'] = igst_total
 
+            from business_logic import calculate_account_balance
+            previous_due = calculate_account_balance(conn, client_id)
+            invoice_data['PreviousDue'] = previous_due
+
+            if inv_type == "GST":
+                pdf_path = generate_gst_invoice(invoice_data, client_data, items_data)
                 c.execute("""
-                    INSERT INTO tblInvoices_GST (InvoiceNo, FinancialYear, InvoiceDate, DueDate, ClientID, TaxableValue, CGST, SGST, IGST, TotalAmount)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (inv_no, fy, date_str, date_str, client_id, total_taxable, cgst_total, sgst_total, igst_total, total_amount))
+                    INSERT INTO tblInvoices_GST (InvoiceNo, FinancialYear, InvoiceDate, DueDate, ClientID, TaxableValue, CGST, SGST, IGST, TotalAmount, PDFPath, BalanceAmount)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (inv_no, fy, date_str, date_str, client_id, total_taxable, cgst_total, sgst_total, igst_total, total_amount, pdf_path, total_amount))
 
                 inv_db_id = c.lastrowid
                 for idx, i in enumerate(items_data):
                     c.execute("INSERT INTO tblInvoiceItems_GST (InvoiceID, SrNo, ServiceDescription, SAC, Amount, TaxableValue, GSTRate, CGST, SGST, TotalAmount) VALUES (?,?,?,?,?,?,?,?,?,?)",
                               (inv_db_id, idx+1, i['ServiceDescription'], i['SAC'], i['Amount'], i['Amount'], 18, i['CGST'], i['SGST'], i['TotalAmount']))
-
-                pdf_path = generate_gst_invoice(invoice_data, client_data, items_data)
             else:
+                pdf_path = generate_normal_invoice(invoice_data, client_data, items_data)
                 c.execute("""
-                    INSERT INTO tblInvoices_Normal (InvoiceNo, FinancialYear, InvoiceDate, DueDate, ClientID, CurrentBill, TotalAmount)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, (inv_no, fy, date_str, date_str, client_id, total_taxable, total_amount))
+                    INSERT INTO tblInvoices_Normal (InvoiceNo, FinancialYear, InvoiceDate, DueDate, ClientID, CurrentBill, PreviousDue, TotalAmount, PDFPath, BalanceAmount)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (inv_no, fy, date_str, date_str, client_id, total_taxable, previous_due, total_amount, pdf_path, total_amount))
 
                 inv_db_id = c.lastrowid
                 for idx, i in enumerate(items_data):
                     c.execute("INSERT INTO tblInvoiceItems_Normal (InvoiceID, SrNo, ServiceDescription, Amount, TotalAmount) VALUES (?,?,?,?,?)",
                               (inv_db_id, idx+1, i['ServiceDescription'], i['Amount'], i['TotalAmount']))
-
-                pdf_path = generate_normal_invoice(invoice_data, client_data, items_data)
 
             conn.commit()
 
@@ -518,6 +532,44 @@ class InvoicingApp(tk.Tk):
 
 
 
+    def open_invoice_pdf(self, event):
+        selected = self.tree_invoices.selection()
+        if not selected: return
+        item = self.tree_invoices.item(selected[0])
+        inv_no = item['values'][1]
+        inv_type = item['values'][2]
+
+        conn = get_connection()
+        c = conn.cursor()
+
+        pdf_path = None
+        if inv_type == 'Normal':
+            c.execute("SELECT PDFPath FROM tblInvoices_Normal WHERE InvoiceNo=?", (inv_no,))
+        else:
+            c.execute("SELECT PDFPath FROM tblInvoices_GST WHERE InvoiceNo=?", (inv_no,))
+
+        row = c.fetchone()
+        conn.close()
+
+        if row and row[0]:
+            pdf_path = row[0]
+            if os.path.exists(pdf_path):
+                import platform
+                import subprocess
+                try:
+                    if platform.system() == 'Darwin':       # macOS
+                        subprocess.call(('open', pdf_path))
+                    elif platform.system() == 'Windows':    # Windows
+                        os.startfile(pdf_path)
+                    else:                                   # linux variants
+                        subprocess.call(('xdg-open', pdf_path))
+                except Exception as e:
+                    messagebox.showerror("Error", f"Failed to open PDF.\n{str(e)}")
+            else:
+                messagebox.showerror("Error", f"PDF file not found at path:\n{pdf_path}")
+        else:
+            messagebox.showerror("Error", "No PDF path found in database for this invoice.")
+
     def setup_receipts_tab(self):
         # Frame for List
         frame_list = ttk.LabelFrame(self.tab_receipts, text="All Invoices")
@@ -534,6 +586,7 @@ class InvoicingApp(tk.Tk):
         self.tree_invoices.configure(yscrollcommand=scrollbar.set)
         scrollbar.pack(side="right", fill="y")
         self.tree_invoices.pack(fill='both', expand=True)
+        self.tree_invoices.bind("<Double-1>", self.open_invoice_pdf)
 
         # Tags for coloring
         self.tree_invoices.tag_configure('unpaid', background='#ffcccc') # Light red for unpaid/balance
@@ -541,14 +594,37 @@ class InvoicingApp(tk.Tk):
 
         # Action Frame
         frame_action = ttk.LabelFrame(self.tab_receipts, text="Receive Payment")
-        frame_action.pack(fill='x', padx=10, pady=10)
+        frame_action.pack(fill='x', padx=10, pady=5)
 
-        ttk.Label(frame_action, text="Amount Received (Rs.):").pack(side='left', padx=5, pady=5)
-        self.entry_payment_amt = ttk.Entry(frame_action, width=15)
+        ttk.Label(frame_action, text="Date (DD-MM-YYYY):").pack(side='left', padx=5, pady=5)
+        self.entry_payment_date = ttk.Entry(frame_action, width=12)
+        self.entry_payment_date.insert(0, datetime.now().strftime("%d-%m-%Y"))
+        self.entry_payment_date.pack(side='left', padx=5, pady=5)
+
+        ttk.Label(frame_action, text="Mode:").pack(side='left', padx=5, pady=5)
+        self.combo_payment_mode = ttk.Combobox(frame_action, values=["Cash", "Online", "Cheque", "Other"], width=10, state="readonly")
+        self.combo_payment_mode.current(1)
+        self.combo_payment_mode.pack(side='left', padx=5, pady=5)
+
+        ttk.Label(frame_action, text="Amount (Rs.):").pack(side='left', padx=5, pady=5)
+        self.entry_payment_amt = ttk.Entry(frame_action, width=12)
         self.entry_payment_amt.pack(side='left', padx=5, pady=5)
 
-        ttk.Button(frame_action, text="Record Payment & Generate Receipt", command=self.record_payment).pack(side='left', padx=15, pady=5)
+        ttk.Button(frame_action, text="Record Payment & Receipt", command=self.record_payment).pack(side='left', padx=15, pady=5)
         ttk.Button(frame_action, text="Refresh List", command=self.refresh_invoices_list).pack(side='right', padx=5, pady=5)
+
+        # Historical Receipts View
+        frame_hist = ttk.LabelFrame(self.tab_receipts, text="Receipt History (Select an Invoice above)")
+        frame_hist.pack(fill='both', expand=True, padx=10, pady=5)
+
+        hist_columns = ('Receipt ID', 'Date', 'Amount', 'Mode')
+        self.tree_receipts = ttk.Treeview(frame_hist, columns=hist_columns, show='headings', height=5)
+        for col in hist_columns:
+            self.tree_receipts.heading(col, text=col)
+            self.tree_receipts.column(col, width=100)
+        self.tree_receipts.pack(fill='both', expand=True)
+
+        self.tree_invoices.bind('<<TreeviewSelect>>', self.on_invoice_select_for_history, add='+')
 
         self.notebook.bind('<<NotebookTabChanged>>', self.on_tab_change)
 
@@ -558,7 +634,8 @@ class InvoicingApp(tk.Tk):
         if tab_text == "Invoice Tracking & Receipts":
             self.refresh_invoices_list()
         elif tab_text == "Cash Book & Bank Book":
-            self.refresh_cash_bank_lists()
+            self.refresh_book('Cash')
+            self.refresh_book('Bank')
         elif tab_text == "Recycle Bin":
             self.refresh_recycle_list()
 
@@ -602,17 +679,22 @@ class InvoicingApp(tk.Tk):
         ent_pay = ttk.Entry(frame_entry, width=10)
         ent_pay.grid(row=0, column=7, padx=5, pady=5)
 
-        ttk.Button(frame_entry, text="Add", command=lambda: self.add_book_entry(book_type, ent_date, ent_part, ent_rec, ent_pay)).grid(row=0, column=8, padx=10, pady=5)
+
+        btn_f = ttk.Frame(frame_entry)
+        btn_f.grid(row=0, column=8, padx=10, pady=5)
+        ttk.Button(btn_f, text="Add", command=lambda: self.add_book_entry(book_type, ent_date, ent_part, ent_rec, ent_pay)).pack(side='left', padx=2)
+        ttk.Button(btn_f, text="Modify", command=lambda: self.modify_book_entry(book_type, ent_date, ent_part, ent_rec, ent_pay)).pack(side='left', padx=2)
+        ttk.Button(btn_f, text="Delete", command=lambda: self.delete_book_entry(book_type)).pack(side='left', padx=2)
         ttk.Button(frame_entry, text="Export Excel", command=lambda: self.export_book(book_type)).grid(row=0, column=9, padx=10, pady=5)
 
         # List Frame
-        columns = ('TxnID', 'Date', 'Particulars', 'Receipt', 'Payment', 'Balance')
+        columns = ('ID', 'Date', 'Particulars', 'Receipt', 'Payment', 'Balance')
         tree = ttk.Treeview(parent_frame, columns=columns, show='headings')
         for col in columns:
             tree.heading(col, text=col)
             if col in ('Receipt', 'Payment', 'Balance'):
                 tree.column(col, anchor='e', width=100)
-            elif col == 'TxnID':
+            elif col == 'ID':
                 tree.column(col, width=50, anchor='center')
             else:
                 tree.column(col, width=150)
@@ -622,10 +704,164 @@ class InvoicingApp(tk.Tk):
         scrollbar.pack(side="right", fill="y")
         tree.pack(fill='both', expand=True, padx=10, pady=5)
 
+        tree.bind('<<TreeviewSelect>>', lambda e: self.on_book_select(book_type, ent_date, ent_part, ent_rec, ent_pay))
+
         if book_type == 'Cash':
             self.tree_cash = tree
         else:
             self.tree_bank = tree
+
+    def on_book_select(self, book_type, ent_date, ent_part, ent_rec, ent_pay):
+        tree = self.tree_cash if book_type == 'Cash' else self.tree_bank
+        selected = tree.selection()
+        if not selected: return
+        item = tree.item(selected[0])
+
+        ent_date.delete(0, tk.END)
+        ent_date.insert(0, item['values'][1])
+
+        ent_part.delete(0, tk.END)
+        ent_part.insert(0, item['values'][2])
+
+        ent_rec.delete(0, tk.END)
+        ent_rec.insert(0, str(item['values'][3]).replace('Rs. ', '') if item['values'][3] != '-' else '')
+
+        ent_pay.delete(0, tk.END)
+        ent_pay.insert(0, str(item['values'][4]).replace('Rs. ', '') if item['values'][4] != '-' else '')
+
+    def modify_book_entry(self, book_type, ent_date, ent_part, ent_rec, ent_pay):
+        tree = self.tree_cash if book_type == 'Cash' else self.tree_bank
+        selected = tree.selection()
+        if not selected:
+            messagebox.showerror("Error", "Please select a row to modify.")
+            return
+
+        item = tree.item(selected[0])
+        record_id = item['values'][0]
+
+        d = ent_date.get().strip()
+        p = ent_part.get().strip()
+        r = ent_rec.get().strip() or "0"
+        pay = ent_pay.get().strip() or "0"
+
+        try:
+            r = float(r)
+            pay = float(pay)
+        except:
+            messagebox.showerror("Error", "Invalid amounts.")
+            return
+
+        table = 'tblCashBook' if book_type == 'Cash' else 'tblBankBook'
+        pk = 'CashID' if book_type == 'Cash' else 'BankID'
+
+        conn = get_connection()
+        c = conn.cursor()
+        c.execute(f"UPDATE {table} SET Date=?, Particulars=?, ReceiptAmount=?, PaymentAmount=? WHERE {pk}=?", (d, p, r, pay, record_id))
+        conn.commit()
+        conn.close()
+
+        messagebox.showinfo("Success", "Record modified.")
+        self.refresh_book(book_type)
+
+    def delete_book_entry(self, book_type):
+        tree = self.tree_cash if book_type == 'Cash' else self.tree_bank
+        selected = tree.selection()
+        if not selected:
+            messagebox.showerror("Error", "Please select a row to delete.")
+            return
+
+        item = tree.item(selected[0])
+        record_id = item['values'][0]
+
+        if not messagebox.askyesno("Confirm", "Delete this record?"): return
+
+        table = 'tblCashBook' if book_type == 'Cash' else 'tblBankBook'
+        pk = 'CashID' if book_type == 'Cash' else 'BankID'
+
+        conn = get_connection()
+        c = conn.cursor()
+        c.execute(f"DELETE FROM {table} WHERE {pk}=?", (record_id,))
+        conn.commit()
+        conn.close()
+
+        messagebox.showinfo("Success", "Record deleted.")
+        self.refresh_book(book_type)
+
+    def on_book_select(self, book_type, ent_date, ent_part, ent_rec, ent_pay):
+        tree = self.tree_cash if book_type == 'Cash' else self.tree_bank
+        selected = tree.selection()
+        if not selected: return
+        item = tree.item(selected[0])
+
+        ent_date.delete(0, tk.END)
+        ent_date.insert(0, item['values'][1])
+
+        ent_part.delete(0, tk.END)
+        ent_part.insert(0, item['values'][2])
+
+        ent_rec.delete(0, tk.END)
+        ent_rec.insert(0, str(item['values'][3]).replace('Rs. ', '') if item['values'][3] != '-' else '')
+
+        ent_pay.delete(0, tk.END)
+        ent_pay.insert(0, str(item['values'][4]).replace('Rs. ', '') if item['values'][4] != '-' else '')
+
+    def modify_book_entry(self, book_type, ent_date, ent_part, ent_rec, ent_pay):
+        tree = self.tree_cash if book_type == 'Cash' else self.tree_bank
+        selected = tree.selection()
+        if not selected:
+            messagebox.showerror("Error", "Please select a row to modify.")
+            return
+
+        item = tree.item(selected[0])
+        record_id = item['values'][0]
+
+        d = ent_date.get().strip()
+        p = ent_part.get().strip()
+        r = ent_rec.get().strip() or "0"
+        pay = ent_pay.get().strip() or "0"
+
+        try:
+            r = float(r)
+            pay = float(pay)
+        except:
+            messagebox.showerror("Error", "Invalid amounts.")
+            return
+
+        table = 'tblCashBook' if book_type == 'Cash' else 'tblBankBook'
+        pk = 'CashID' if book_type == 'Cash' else 'BankID'
+
+        conn = get_connection()
+        c = conn.cursor()
+        c.execute(f"UPDATE {table} SET Date=?, Particulars=?, ReceiptAmount=?, PaymentAmount=? WHERE {pk}=?", (d, p, r, pay, record_id))
+        conn.commit()
+        conn.close()
+
+        messagebox.showinfo("Success", "Record modified.")
+        self.refresh_book(book_type)
+
+    def delete_book_entry(self, book_type):
+        tree = self.tree_cash if book_type == 'Cash' else self.tree_bank
+        selected = tree.selection()
+        if not selected:
+            messagebox.showerror("Error", "Please select a row to delete.")
+            return
+
+        item = tree.item(selected[0])
+        record_id = item['values'][0]
+
+        if not messagebox.askyesno("Confirm", "Delete this record?"): return
+
+        table = 'tblCashBook' if book_type == 'Cash' else 'tblBankBook'
+        pk = 'CashID' if book_type == 'Cash' else 'BankID'
+
+        conn = get_connection()
+        c = conn.cursor()
+        c.execute(f"DELETE FROM {table} WHERE {pk}=?", (record_id,))
+        conn.commit()
+        conn.close()
+
+        messagebox.showinfo("Success", "Record deleted.")
+        self.refresh_book(book_type)
 
     def add_book_entry(self, book_type, w_date, w_part, w_rec, w_pay):
         date_str = w_date.get().strip()
@@ -656,22 +892,25 @@ class InvoicingApp(tk.Tk):
         w_pay.delete(0, tk.END)
         self.refresh_cash_bank_lists()
 
-    def refresh_cash_bank_lists(self):
-        for tree, table in [(self.tree_cash, 'tblCashBook'), (self.tree_bank, 'tblBankBook')]:
-            for item in tree.get_children():
-                tree.delete(item)
+    def refresh_book(self, book_type):
+        tree = self.tree_cash if book_type == 'Cash' else self.tree_bank
+        table = 'tblCashBook' if book_type == 'Cash' else 'tblBankBook'
+        pk = 'CashID' if book_type == 'Cash' else 'BankID'
 
-            conn = get_connection()
-            c = conn.cursor()
-            c.execute(f"SELECT TxnID, TxnDate, Particulars, Receipt, Payment FROM {table} WHERE IsDeleted=0 ORDER BY TxnID ASC")
-            rows = c.fetchall()
-            conn.close()
+        for item in tree.get_children():
+            tree.delete(item)
 
-            running_balance = 0.0
-            for row in rows:
-                tid, d, p, r, pay = row
-                running_balance += r - pay
-                tree.insert('', tk.END, values=(tid, d, p, f"{r:.2f}", f"{pay:.2f}", f"{running_balance:.2f}"))
+        conn = get_connection()
+        c = conn.cursor()
+        c.execute(f"SELECT {pk}, Date, Particulars, ReceiptAmount, PaymentAmount FROM {table} ORDER BY {pk} ASC")
+        rows = c.fetchall()
+        conn.close()
+
+        running_balance = 0.0
+        for row in rows:
+            tid, d, p, r, pay = row
+            running_balance += r - pay
+            tree.insert('', tk.END, values=(tid, d, p, f"{r:.2f}", f"{pay:.2f}", f"{running_balance:.2f}"))
 
     def export_book(self, book_type):
         try:
@@ -692,9 +931,112 @@ class InvoicingApp(tk.Tk):
         from tkinter import filedialog
         path = filedialog.asksaveasfilename(defaultextension=".xlsx", filetypes=[("Excel files", "*.xlsx")], title=f"Save {book_type} Book")
         if path:
-            df = pd.DataFrame(data, columns=['TxnID', 'Date', 'Particulars', 'Receipt', 'Payment', 'Balance'])
+            df = pd.DataFrame(data, columns=['ID', 'Date', 'Particulars', 'Receipt', 'Payment', 'Balance'])
             df.to_excel(path, index=False)
             messagebox.showinfo("Success", f"{book_type} Book exported successfully.")
+
+    def on_book_select(self, book_type, ent_date, ent_part, ent_rec, ent_pay):
+        tree = self.tree_cash if book_type == 'Cash' else self.tree_bank
+        selected = tree.selection()
+        if not selected: return
+        item = tree.item(selected[0])
+
+        ent_date.delete(0, tk.END)
+        ent_date.insert(0, item['values'][1])
+
+        ent_part.delete(0, tk.END)
+        ent_part.insert(0, item['values'][2])
+
+        ent_rec.delete(0, tk.END)
+        ent_rec.insert(0, str(item['values'][3]).replace('Rs. ', '') if item['values'][3] != '-' else '')
+
+        ent_pay.delete(0, tk.END)
+        ent_pay.insert(0, str(item['values'][4]).replace('Rs. ', '') if item['values'][4] != '-' else '')
+
+    def modify_book_entry(self, book_type, ent_date, ent_part, ent_rec, ent_pay):
+        tree = self.tree_cash if book_type == 'Cash' else self.tree_bank
+        selected = tree.selection()
+        if not selected:
+            messagebox.showerror("Error", "Please select a row to modify.")
+            return
+
+        item = tree.item(selected[0])
+        record_id = item['values'][0]
+
+        d = ent_date.get().strip()
+        p = ent_part.get().strip()
+        r = ent_rec.get().strip() or "0"
+        pay = ent_pay.get().strip() or "0"
+
+        try:
+            r = float(r)
+            pay = float(pay)
+        except:
+            messagebox.showerror("Error", "Invalid amounts.")
+            return
+
+        table = 'tblCashBook' if book_type == 'Cash' else 'tblBankBook'
+        pk = 'CashID' if book_type == 'Cash' else 'BankID'
+
+        conn = get_connection()
+        c = conn.cursor()
+        c.execute(f"UPDATE {table} SET Date=?, Particulars=?, ReceiptAmount=?, PaymentAmount=? WHERE {pk}=?", (d, p, r, pay, record_id))
+        conn.commit()
+        conn.close()
+
+        messagebox.showinfo("Success", "Record modified.")
+        self.refresh_book(book_type)
+
+    def delete_book_entry(self, book_type):
+        tree = self.tree_cash if book_type == 'Cash' else self.tree_bank
+        selected = tree.selection()
+        if not selected:
+            messagebox.showerror("Error", "Please select a row to delete.")
+            return
+
+        item = tree.item(selected[0])
+        record_id = item['values'][0]
+
+        if not messagebox.askyesno("Confirm", "Delete this record?"): return
+
+        table = 'tblCashBook' if book_type == 'Cash' else 'tblBankBook'
+        pk = 'CashID' if book_type == 'Cash' else 'BankID'
+
+        conn = get_connection()
+        c = conn.cursor()
+        c.execute(f"DELETE FROM {table} WHERE {pk}=?", (record_id,))
+        conn.commit()
+        conn.close()
+
+        messagebox.showinfo("Success", "Record deleted.")
+        self.refresh_book(book_type)
+
+    def add_book_entry(self, book_type, ent_date, ent_part, ent_rec, ent_pay):
+        d = ent_date.get().strip()
+        p = ent_part.get().strip()
+        r = ent_rec.get().strip() or "0"
+        pay = ent_pay.get().strip() or "0"
+
+        try:
+            r = float(r)
+            pay = float(pay)
+        except:
+            messagebox.showerror("Error", "Invalid amounts.")
+            return
+
+        table = 'tblCashBook' if book_type == 'Cash' else 'tblBankBook'
+
+        conn = get_connection()
+        c = conn.cursor()
+        c.execute(f"INSERT INTO {table} (Date, Particulars, ReceiptAmount, PaymentAmount) VALUES (?, ?, ?, ?)", (d, p, r, pay))
+        conn.commit()
+        conn.close()
+
+        messagebox.showinfo("Success", "Record added.")
+        ent_part.delete(0, tk.END)
+        ent_rec.delete(0, tk.END)
+        ent_pay.delete(0, tk.END)
+        self.refresh_book(book_type)
 
     def setup_notes_tab(self):
         frame_top = ttk.LabelFrame(self.tab_notes, text="Issue Credit/Debit Note")
@@ -706,8 +1048,12 @@ class InvoicingApp(tk.Tk):
         self.combo_note_type.grid(row=0, column=1, padx=5, pady=5)
 
         ttk.Label(frame_top, text="Against GST Invoice No:").grid(row=0, column=2, padx=5, pady=5)
-        self.entry_note_inv = ttk.Entry(frame_top, width=20)
-        self.entry_note_inv.grid(row=0, column=3, padx=5, pady=5)
+
+        inv_frame = ttk.Frame(frame_top)
+        inv_frame.grid(row=0, column=3, padx=5, pady=5)
+        self.entry_note_inv = ttk.Entry(inv_frame, width=15)
+        self.entry_note_inv.pack(side='left')
+        ttk.Button(inv_frame, text="Select", command=self.open_invoice_selector).pack(side='left', padx=2)
 
         ttk.Label(frame_top, text="Date:").grid(row=0, column=4, padx=5, pady=5)
         self.entry_note_date = ttk.Entry(frame_top, width=12)
@@ -724,6 +1070,45 @@ class InvoicingApp(tk.Tk):
         self.entry_note_reason.grid(row=1, column=3, columnspan=3, padx=5, pady=5, sticky='w')
 
         ttk.Button(frame_top, text="Generate Note", command=self.generate_note).grid(row=2, column=0, columnspan=6, pady=10)
+
+    def open_invoice_selector(self):
+        top = tk.Toplevel(self)
+        top.title("Select GST Invoice")
+        top.geometry("600x400")
+        top.transient(self)
+        top.grab_set()
+
+        columns = ('Invoice No', 'Date', 'Client Name', 'Total Amount')
+        tree = ttk.Treeview(top, columns=columns, show='headings')
+        for col in columns:
+            tree.heading(col, text=col)
+            tree.column(col, width=120)
+        tree.pack(fill='both', expand=True, padx=10, pady=10)
+
+        conn = get_connection()
+        c = conn.cursor()
+        c.execute("""
+            SELECT i.InvoiceNo, i.InvoiceDate, c.ClientName, i.TotalAmount
+            FROM tblInvoices_GST i
+            JOIN tblClients c ON i.ClientID = c.ClientID
+            WHERE i.IsDeleted=0
+            ORDER BY i.InvoiceID DESC
+        """)
+        for row in c.fetchall():
+            tree.insert('', tk.END, values=row)
+        conn.close()
+
+        def on_select():
+            selected = tree.selection()
+            if not selected:
+                messagebox.showerror("Error", "Please select an invoice.")
+                return
+            item = tree.item(selected[0])
+            self.entry_note_inv.delete(0, tk.END)
+            self.entry_note_inv.insert(0, item['values'][0])
+            top.destroy()
+
+        ttk.Button(top, text="Select", command=on_select).pack(pady=10)
 
     def generate_note(self):
         note_type = self.combo_note_type.get()
@@ -810,7 +1195,11 @@ class InvoicingApp(tk.Tk):
             'Date': date_str,
             'InvoiceNo': inv_no,
             'Amount': amt,
-            'Reason': reason
+            'Reason': reason,
+            'CGST': 0.0,
+            'SGST': 0.0,
+            'IGST': 0.0,
+            'TotalAmount': amt
         }
 
         from pdf_generator import generate_note_pdf
@@ -953,6 +1342,29 @@ class InvoicingApp(tk.Tk):
 
         conn.close()
 
+    def on_invoice_select_for_history(self, event):
+        selected = self.tree_invoices.selection()
+        if not selected: return
+        item = self.tree_invoices.item(selected[0])
+        inv_no = item['values'][1]
+        inv_type = item['values'][2]
+
+        for i in self.tree_receipts.get_children():
+            self.tree_receipts.delete(i)
+
+        conn = get_connection()
+        c = conn.cursor()
+
+        table = 'tblInvoices_Normal' if inv_type == 'Normal' else 'tblInvoices_GST'
+        c.execute(f"SELECT InvoiceID FROM {table} WHERE InvoiceNo=?", (inv_no,))
+        row = c.fetchone()
+        if row:
+            inv_id = row[0]
+            c.execute("SELECT PaymentID, PaymentDate, Amount, PaymentMode FROM tblPayments WHERE InvoiceID=? AND InvoiceType=? AND IsDeleted=0 ORDER BY PaymentID DESC", (inv_id, inv_type))
+            for r in c.fetchall():
+                self.tree_receipts.insert('', tk.END, values=(f"RCPT-{r[0]}", r[1], f"Rs. {r[2]:.2f}", r[3]))
+        conn.close()
+
     def record_payment(self):
         selected = self.tree_invoices.selection()
         if not selected:
@@ -989,6 +1401,13 @@ class InvoicingApp(tk.Tk):
             if not messagebox.askyesno("Warning", f"Amount (Rs. {amt}) is greater than balance (Rs. {balance}). Continue?"):
                 return
 
+        payment_date = self.entry_payment_date.get().strip()
+        payment_mode = self.combo_payment_mode.get().strip()
+
+        if not payment_date:
+            messagebox.showerror("Error", "Please enter a payment date.")
+            return
+
         conn = get_connection()
         c = conn.cursor()
 
@@ -1007,14 +1426,27 @@ class InvoicingApp(tk.Tk):
         receipt_no = generate_receipt_number(conn)
 
         c.execute('''
-            INSERT INTO tblPayments (InvoiceType, InvoiceID, PaymentDate, Amount, ReferenceNo)
-            VALUES (?, ?, date('now'), ?, ?)
-        ''', (inv_type, inv_id, amt, receipt_no))
+            INSERT INTO tblPayments (InvoiceType, InvoiceID, PaymentDate, Amount, ReferenceNo, PaymentMode)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (inv_type, inv_id, payment_date, amt, receipt_no, payment_mode))
 
         conn.commit()
         conn.close()
 
         messagebox.showinfo("Success", f"Payment of Rs. {amt} recorded successfully.\nReceipt No: {receipt_no}")
+
+        # WhatsApp Receipt msg
+        ans = messagebox.askyesno("WhatsApp", f"Do you want to send a WhatsApp receipt to {client_name}?")
+        if ans:
+            conn = get_connection()
+            c = conn.cursor()
+            c.execute("SELECT Mobile FROM tblClients WHERE ClientName=?", (client_name,))
+            r = c.fetchone()
+            conn.close()
+            if r and r[0]:
+                from business_logic import send_whatsapp_receipt
+                send_whatsapp_receipt(r[0], client_name, receipt_no, inv_no, amt, balance - amt)
+
         self.entry_payment_amt.delete(0, tk.END)
         self.refresh_invoices_list()
 

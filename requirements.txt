@@ -6,4 +6,3 @@ beautifulsoup4
 openpyxl
 cryptography
 yfinance
-num2words

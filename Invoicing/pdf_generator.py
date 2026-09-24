@@ -27,10 +27,10 @@ def number_to_words(n):
         # Fallback if num2words not installed
         try:
             from num2words import num2words
-            words = num2words(int(n), lang="en_IN").replace(",", "").title().replace(" And ", " ")
-            return f"Rs. {words} Only"
+            words = num2words(int(n), lang='en_IN').replace(',', '').title().replace(' And ', ' ')
+            return f'Rs. {words} Only'
         except ImportError:
-            return f"Rs. [Amount in Words for {int(n)}] Only"
+            return f'Rs. [Amount in Words for {int(n)}] Only'
 
 def get_asset_path(filename):
     path = os.path.join(ASSETS_DIR, filename)
@@ -134,6 +134,7 @@ def generate_gst_invoice(invoice_data, client_data, items_data):
         ('TEXTCOLOR', (0,0), (-1,0), colors.black),
         ('ALIGN', (0,0), (-1,-1), 'CENTER'),
         ('ALIGN', (1,1), (1,-1), 'LEFT'),
+        ('ALIGN', (3,1), (-1,-1), 'RIGHT'),
         ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
         ('BOTTOMPADDING', (0,0), (-1,0), 12),
         ('BACKGROUND', (0,1), (-1,-1), colors.white),
@@ -145,9 +146,18 @@ def generate_gst_invoice(invoice_data, client_data, items_data):
 
     current_y = height - 10.5*cm - h
 
-    # Total Amount in Words
     total_amt = invoice_data['TotalAmount']
-    amt_words = number_to_words(total_amt)
+    prev_due = invoice_data.get('PreviousDue', 0.0)
+    grand_total = total_amt + prev_due
+
+    # Render Totals block aligned right
+    c.setFont("Helvetica-Bold", 10)
+    c.drawRightString(width - 1*cm, current_y, f"Current Bill: Rs. {total_amt:.2f}")
+    c.drawRightString(width - 1*cm, current_y - 0.5*cm, f"Previous Due: Rs. {prev_due:.2f}")
+    c.drawRightString(width - 1*cm, current_y - 1.0*cm, f"Grand Total: Rs. {grand_total:.2f}")
+
+    # Total Amount in Words
+    amt_words = number_to_words(grand_total)
 
     c.setFont("Helvetica-Bold", 10)
     c.drawString(1*cm, current_y, "Total Amount (in words):")
@@ -230,6 +240,7 @@ def generate_normal_invoice(invoice_data, client_data, items_data):
         ('TEXTCOLOR', (0,0), (-1,0), colors.black),
         ('ALIGN', (0,0), (-1,-1), 'CENTER'),
         ('ALIGN', (1,1), (1,-1), 'LEFT'),
+        ('ALIGN', (2,1), (2,-1), 'RIGHT'),
         ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
         ('BOTTOMPADDING', (0,0), (-1,0), 12),
         ('BACKGROUND', (0,1), (-1,-1), colors.white),
@@ -241,9 +252,18 @@ def generate_normal_invoice(invoice_data, client_data, items_data):
 
     current_y = height - 10*cm - h
 
-    # Total Amount in Words
     total_amt = invoice_data['TotalAmount']
-    amt_words = number_to_words(total_amt)
+    prev_due = invoice_data.get('PreviousDue', 0.0)
+    grand_total = total_amt + prev_due
+
+    # Render Totals block aligned right
+    c.setFont("Helvetica-Bold", 10)
+    c.drawRightString(width - 1.5*cm, current_y, f"Current Bill: Rs. {total_amt:.2f}")
+    c.drawRightString(width - 1.5*cm, current_y - 0.5*cm, f"Previous Due: Rs. {prev_due:.2f}")
+    c.drawRightString(width - 1.5*cm, current_y - 1.0*cm, f"Grand Total: Rs. {grand_total:.2f}")
+
+    # Total Amount in Words
+    amt_words = number_to_words(grand_total)
 
     c.setFont("Helvetica-Bold", 10)
     c.drawString(1.5*cm, current_y, "Total Amount (in words):")
@@ -262,6 +282,81 @@ def generate_normal_invoice(invoice_data, client_data, items_data):
     draw_qr_code(c, width/2, current_y - 3*cm, 2.5*cm, "BERRIFY.jpeg") # Assuming name if provided later
 
     # Signature
+    draw_signature(c, width - 5*cm, current_y - 2.5*cm, 4*cm, 1.5*cm, "Sign.jpg")
+    c.setFont("Helvetica", 10)
+    c.drawCentredString(width - 3*cm, current_y - 3*cm, "Authorised Signatory")
+
+    c.save()
+    return filepath
+
+def generate_note_pdf(note_data, client_data):
+    client_name_safe = "".join([c for c in client_data['ClientName'] if c.isalpha() or c.isdigit() or c==' ']).rstrip()
+    filename = f"{note_data['NoteNo'].replace('/', '_')}_{client_name_safe}.pdf"
+
+    notes_dir = os.path.join(OUTPUT_DIR, "Notes")
+    if not os.path.exists(notes_dir):
+        os.makedirs(notes_dir)
+
+    filepath = os.path.join(notes_dir, filename)
+
+    c = canvas.Canvas(filepath, pagesize=A4)
+    width, height = A4
+
+    draw_header_image(c, width, height, "GST INVOICE.jpg")
+
+    c.setFont("Helvetica-Bold", 14)
+    c.drawCentredString(width/2.0, height - 5*cm, note_data['NoteType'].upper())
+
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(1*cm, height - 6*cm, "Billed To:")
+    c.drawString(1*cm, height - 6.5*cm, client_data['ClientName'])
+
+    c.setFont("Helvetica", 10)
+    c.drawString(1*cm, height - 7*cm, f"Address: {client_data.get('Address', '')}")
+    c.drawString(1*cm, height - 7.5*cm, f"PAN: {client_data.get('PAN', '')}")
+    c.drawString(1*cm, height - 8*cm, f"GSTIN: {client_data.get('GSTIN', '')}")
+
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(width/2 + 2*cm, height - 6*cm, f"{note_data['NoteType']} Details:")
+    c.setFont("Helvetica", 10)
+    c.drawString(width/2 + 2*cm, height - 6.5*cm, f"Note No: {note_data['NoteNo']}")
+    c.drawString(width/2 + 2*cm, height - 7*cm, f"Date: {note_data['Date']}")
+    c.drawString(width/2 + 2*cm, height - 7.5*cm, f"Against Inv: {note_data['InvoiceNo']}")
+
+    data = [["Reason", "Amount", "CGST", "SGST", "IGST", "Total"]]
+    row = [
+        note_data['Reason'],
+        f"{note_data['Amount']:.2f}",
+        f"{note_data['CGST']:.2f}",
+        f"{note_data['SGST']:.2f}",
+        f"{note_data['IGST']:.2f}",
+        f"{note_data['TotalAmount']:.2f}"
+    ]
+    data.append(row)
+
+    t = Table(data, colWidths=[6*cm, 2.5*cm, 2.5*cm, 2.5*cm, 2.5*cm, 3*cm])
+    t.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#f2f2f2")),
+        ('TEXTCOLOR', (0,0), (-1,0), colors.black),
+        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+        ('ALIGN', (1,1), (-1,-1), 'RIGHT'),
+        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+        ('BOTTOMPADDING', (0,0), (-1,0), 12),
+        ('BACKGROUND', (0,1), (-1,-1), colors.white),
+        ('GRID', (0,0), (-1,-1), 1, colors.black),
+    ]))
+
+    w, h = t.wrap(width, height)
+    t.drawOn(c, 1*cm, height - 9.5*cm - h)
+
+    current_y = height - 10.5*cm - h
+
+    amt_words = number_to_words(note_data['TotalAmount'])
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(1*cm, current_y, "Total Amount (in words):")
+    c.setFont("Helvetica", 10)
+    c.drawString(1*cm, current_y - 0.5*cm, amt_words)
+
     draw_signature(c, width - 5*cm, current_y - 2.5*cm, 4*cm, 1.5*cm, "Sign.jpg")
     c.setFont("Helvetica", 10)
     c.drawCentredString(width - 3*cm, current_y - 3*cm, "Authorised Signatory")
