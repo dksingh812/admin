@@ -11,7 +11,15 @@
 - [x] Business Management UI (Business Selection Screen)
 - [x] Basic Dashboard structure
 
-## Phase 2: Business and Master Management (Pending)
+## Phase 2: Business and Master Management (Completed)
+- [x] Customer Management Models & Services
+- [x] Supplier Management Models & Services
+- [x] Products and Services (Items) Models & Services
+- [x] Database Migrations applied
+- [x] Opening balances logic for Customers and Suppliers
+- [x] Customer UI Tab (integrated into dashboard)
+- [x] Phase 2 Testing and Verification
+
 ## Phase 3: Invoice System (Pending)
 ## Phase 4: Word and PDF (Pending)
 ## Phase 5: Payments and Outstanding Dues (Pending)
